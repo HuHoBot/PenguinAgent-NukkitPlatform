@@ -28,17 +28,65 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledFuture
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 
 object QClient {
     private const val KEYBOARD_RECALL_DELAY_SECONDS = 30L
+
+    /** QQ 被动回复窗口：收到消息后 5 分钟内有效，这里留 1 分钟余量。 */
+    private const val PASSIVE_TICKET_TTL_MS = 4 * 60 * 1000L
+
+    /** 同一条 msg_id 最多允许 5 次被动回复。 */
+    private const val PASSIVE_MAX_SEQUENCE = 5
 
     private val recallScheduler = Executors.newSingleThreadScheduledExecutor { runnable ->
         Thread(runnable, "Penguin-Keyboard-Recall").apply { isDaemon = true }
     }
     private val pendingRecalls = ConcurrentHashMap<String, ScheduledFuture<*>>()
 
+    /**
+     * 被动回复票据。
+     *
+     * QQ 开放平台把不带 `msg_id` 的群消息视为**主动消息**，需要单独申请权限；
+     * 未获权限时接口会返回 40034105「主动消息失败, 无权限」。
+     * 因此这里记住每个群最近一条收到的消息 id，在有效窗口内把出站消息改造成被动回复。
+     */
+    private class PassiveTicket(val messageId: String, val receivedAt: Long) {
+        val usedSequences = AtomicInteger(0)
+    }
+
+    private val passiveTickets = ConcurrentHashMap<String, PassiveTicket>()
+
     private lateinit var starter: Starter
     private lateinit var groupMessageHandler: GroupMessageHandler
+
+    /** 收到群消息时登记被动回复票据，供后续出站消息复用。 */
+    fun rememberPassiveTicket(groupOpenId: String, messageId: String?) {
+        val id = messageId?.takeIf { it.isNotBlank() } ?: return
+        passiveTickets[groupOpenId] = PassiveTicket(id, System.currentTimeMillis())
+    }
+
+    /** 取下一个可用的 (msg_id, msg_seq)；没有可用票据时返回 null（退回主动消息）。 */
+    private fun nextPassiveTicket(groupOpenId: String): Pair<String, Int>? {
+        val ticket = passiveTickets[groupOpenId] ?: return null
+        if (System.currentTimeMillis() - ticket.receivedAt > PASSIVE_TICKET_TTL_MS) {
+            passiveTickets.remove(groupOpenId)
+            return null
+        }
+        val sequence = ticket.usedSequences.incrementAndGet()
+        if (sequence > PASSIVE_MAX_SEQUENCE) {
+            // 该 msg_id 的被动回复次数已用尽，等群里下一条消息带来新票据。
+            passiveTickets.remove(groupOpenId)
+            return null
+        }
+        return ticket.messageId to sequence
+    }
+
+    /** 有可用票据时把出站消息改造成被动回复。 */
+    private fun V2MsgData.withPassiveTicket(groupOpenId: String): V2MsgData {
+        val ticket = nextPassiveTicket(groupOpenId) ?: return this
+        return setMsg_id(ticket.first).setMsg_seq(ticket.second)
+    }
 
     /** 获取 QQ Bot Starter 实例（供 Agent 群管理 API 使用）。 */
     fun getStarter(): Starter? = if (::starter.isInitialized) starter else null
@@ -167,14 +215,16 @@ object QClient {
             plugin.formatGameMessage(qqSenderName, safeProcessed)
         )
         val markdown = Markdown().setContent(content)
-        val payload = V2MsgData()
-            .setContent(content)
-            .setMsg_type(2)
-            .setMarkdown(markdown)
         Thread {
             plugin.getGroupOpenIdList().forEach { groupId ->
                 try {
-                    starter.bot.groupBaseV2.send(groupId, JSON.toJSONString(payload), Channel.SEND_MESSAGE_HEADERS)
+                    // 每个群各用各的被动票据，因此 payload 必须逐群构造。
+                    val groupPayload = V2MsgData()
+                        .setContent(content)
+                        .setMsg_type(2)
+                        .setMarkdown(markdown)
+                        .withPassiveTicket(groupId)
+                    starter.bot.groupBaseV2.send(groupId, JSON.toJSONString(groupPayload), Channel.SEND_MESSAGE_HEADERS)
                 } catch (e: Exception) {
                     plugin.log_error("向QQ群 $groupId 转发游戏聊天失败: ${e.message}")
                 }
@@ -285,6 +335,7 @@ object QClient {
         val plugin = BotShared.getPlugin()
         val markdown = Markdown().setContent(content)
         val payload = V2MsgData().setContent(content).setMsg_type(2).setMarkdown(markdown)
+            .withPassiveTicket(groupOpenId)
         Thread {
             try {
                 starter.bot.groupBaseV2.send(groupOpenId, JSON.toJSONString(payload), Channel.SEND_MESSAGE_HEADERS)
@@ -298,10 +349,12 @@ object QClient {
         if (content.isBlank()) return
         val plugin = BotShared.getPlugin()
         val markdown = Markdown().setContent(content)
-        val payload = V2MsgData().setContent(content).setMsg_type(2).setMarkdown(markdown)
         Thread {
             plugin.getGroupOpenIdList().forEach { groupId ->
                 try {
+                    // 每个群各用各的被动票据，因此 payload 必须逐群构造。
+                    val payload = V2MsgData().setContent(content).setMsg_type(2).setMarkdown(markdown)
+                        .withPassiveTicket(groupId)
                     starter.bot.groupBaseV2.send(groupId, JSON.toJSONString(payload), Channel.SEND_MESSAGE_HEADERS)
                 } catch (e: Exception) {
                     plugin.log_error("向QQ群 $groupId ${action}失败: ${e.message}")
@@ -319,18 +372,18 @@ object QClient {
         }
 
         val markdown = Markdown().setContent(markdownContent)
-        val payload = V2MsgData()
-            .setContent(markdownContent)
-            .setMsg_type(2)
-            .setMarkdown(markdown)
-        if (keyboard != null) {
-            markdown.setKeyboard(keyboard)
-            payload.setKeyboard(keyboard)
-        }
+        if (keyboard != null) markdown.setKeyboard(keyboard)
 
         plugin.getGroupOpenIdList().forEach { groupId ->
             try {
-                val result = starter.bot.groupBaseV2.send(groupId, JSON.toJSONString(payload), Channel.SEND_MESSAGE_HEADERS)
+                // 每个群各用各的被动票据，因此 payload 必须逐群构造。
+                val groupPayload = V2MsgData()
+                    .setContent(markdownContent)
+                    .setMsg_type(2)
+                    .setMarkdown(markdown)
+                    .withPassiveTicket(groupId)
+                if (keyboard != null) groupPayload.setKeyboard(keyboard)
+                val result = starter.bot.groupBaseV2.send(groupId, JSON.toJSONString(groupPayload), Channel.SEND_MESSAGE_HEADERS)
                 scheduleKeyboardRecall(groupId, keyboard, result)
             } catch (e: Exception) {
                 plugin.log_error("向QQ群 $groupId 发送 Markdown 失败: ${e.message}")
@@ -353,6 +406,7 @@ object QClient {
             .setContent(markdownContent)
             .setMsg_type(2)
             .setMarkdown(markdown)
+            .withPassiveTicket(groupOpenId)
         if (keyboard != null) {
             markdown.setKeyboard(keyboard)
             payload.setKeyboard(keyboard)

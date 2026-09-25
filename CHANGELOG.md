@@ -1,5 +1,55 @@
 # Changelog
 
+## v1.14.0（未发布）
+
+### Bug 修复
+
+- fix: **Nukkit 平台 QQ 机器人无法启动** —— 影子 jar 曾排除 `logback`，而 QQ SDK 的 `Starter`
+  静态初始化块直接引用 `ch.qos.logback.core.Context`（链接期硬依赖），触发
+  `NoClassDefFoundError` 导致机器人永远连不上。现改为打包 logback（MOT 不提供该库；
+  SLF4J provider 在服务端 classloader 上发现，不会与 MOT 的 log4j-slf4j2-impl 冲突）
+- fix: **启动失败被静默吞掉** —— `startClient` 原先只 `catch (Exception)`，
+  而 `NoClassDefFoundError` / `NoSuchMethodError` 属于 `Error`，会被 `CompletableFuture`
+  悄无声息地丢弃，外部表现为「什么都没发生」。现改捕 `Throwable` 并打印完整堆栈
+- fix: **扫码登录死循环** —— 用户手动在 config.yml 填好凭据后，扫码流程仍会无限刷新二维码
+  （刷屏 + 长期占用公共线程池 worker）。现在每轮与轮询中都会检查凭据是否已存在并主动退出
+- fix: **QQ 群收发消息全部失败（影响 Spigot 与 Nukkit）** —— 出站消息原先都不带 `msg_id`，
+  被 QQ 开放平台判定为「主动消息」，未申请该权限的机器人会被 `40034105 主动消息失败, 无权限`
+  拒绝，表现为机器人完全不回话、聊天不转发。现新增**被动回复票据**：收到群消息时记录
+  `msg_id`，5 分钟窗口内每条出站消息自动挂上它和递增的 `msg_seq`（每条最多 5 次），
+  覆盖指令回复、进退服通知、游戏聊天转发、Markdown 卡片等全部出站路径
+- fix: **Nukkit 背包 PNG 渲染失败** —— `PlayerSkin` 只接受 64x64 / 64x32，而 Bedrock 玩家
+  普遍使用 128x128（HD）皮肤，校验抛异常导致整张图渲染失败并回退成文本。现增加皮肤尺寸
+  归一化（128x128 / 256x256 与 64x64 的 UV 布局一致，最近邻缩放即可无损还原）
+- fix: **Nukkit 文本背包被 QQ markdown 解析成表格** —— `--- | --- | …` 形式的全空行会被
+  渲染成一个突兀的方框，现将文本形态包进代码块保持等宽原样输出
+
+### 新功能
+
+- feat: **Nukkit-MOT 平台适配（Bedrock）** —— `server/Nukkit` 从占位模块补齐为完整适配器，并纳入 Gradle 构建
+  - feat: 与 Spigot 对齐的配置体系：WebUI 配置读写、`config-version` 迁移、扫码登录写回凭据、陌生群自动收录
+  - feat: 命令输出捕获（log4j2 root logger Appender）+ `/huhobot`、`/at`、`/qqbind`、`/send` 四条游戏内指令
+  - feat: 背包 / 末影箱 PNG 渲染 —— 移植 Faithful 贴图管线与玩家模型渲染器，新增 Bedrock→Java 物品贴图映射表（706 条 id/meta + 47 条命名空间别名）
+  - feat: 离线背包快照（退服采集 + 定时全量 + NBT 落盘），支持离线玩家查询
+  - feat: 服务器插件列表 / 命令帮助 / 日志读取，供 AI Agent 使用
+- feat: `YamlConfig` 新增保留注释的定点写入（`set` / `save` / `flatten`），只改写目标键所在行
+- feat: `YamlFileEditor` —— 基于行的 YAML 写入器，WebUI 保存不再抹掉 `config.yml` 的说明注释
+
+### 优化
+
+- opt: `settings.gradle.kts` 引入 foojay 工具链解析器，缺少 JDK 8 / JDK 17 时自动下载
+- opt: Nukkit 扫码登录改为**异步执行**，未扫码时不再阻塞服务端启动（Spigot 侧仍为同步）
+- opt: Nukkit 文本背包按真实槽位输出（Spigot 侧把 0-26 当物品栏，导致快捷栏重复、27-35 不显示）
+- opt: Nukkit 配置迁移先读取旧版本号再补键（Spigot 侧因先补 `config-version` 而跳过老配置的版本化迁移）
+- opt: Nukkit 影子 jar 排除服务端已自带的 logback / slf4j / gson / snakeyaml，避免与 MOT 的 log4j2 抢 SLF4J 绑定
+
+### 说明
+
+- Nukkit 侧暂未接入 bStats；PlaceholderAPI 在 Nukkit 无对应插件，`%占位符%` 原样保留
+- 背包渲染资源（约 11 MB）在构建时从 `server/Spigot/src/main/resources/inventory` 同步，不在仓库中重复存放
+
+---
+
 ## v1.4.0（2026-08-29）
 
 ### 新功能

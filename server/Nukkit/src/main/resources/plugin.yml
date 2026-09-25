@@ -1,15 +1,39 @@
 name: HuHoBotPenguin
 main: cn.huohuas001.huhobotPenguin.nukkit.HuHoBotNukkit
-version: '${version}'
-api: ["1.0.5"]
+version: '@version@'
+api: ["1.0.0"]
 load: POSTWORLD
-author: "HuoHuas001"
-prefix: "HuHoBot"
+author: HuoHuas001
+description: 将 QQ 群机器人接入 Nukkit 服务器：双向聊天转发、白名单管理、AI Agent 与 WebUI 配置
+prefix: HuHoBot
+website: https://github.com/HuHoBot/PenguinAgent
+
 commands:
   huhobot:
     description: HuHoBot control command
-    usage: "/huhobot reload"
+    usage: "/huhobot reload|info|send|password|webui"
+    aliases: [hb]
     permission: huhobot.command
+  at:
+    description: Send an @mention message to QQ group
+    usage: "/at <nickname> <message>"
+    permission: huhobot.command
+  qqbind:
+    description: Verify QQ binding with a code from the QQ group
+    usage: "/qqbind <code>"
+    permission: huhobot.qqbind
+  send:
+    description: Send a message to QQ group
+    usage: "/send <message>"
+    permission: huhobot.send
+
 permissions:
   huhobot.command:
+    description: Allows use of HuHoBot control commands
     default: op
+  huhobot.qqbind:
+    description: Allows use of QQ bind command
+    default: true
+  huhobot.send:
+    description: Allows use of send command to QQ group
+    default: true

@@ -2,6 +2,7 @@ package cn.huohuas001.bot.events
 
 import cn.huohuas001.bot.HuHoBot
 import cn.huohuas001.bot.NicknameManager
+import cn.huohuas001.bot.QClient
 import cn.huohuas001.bot.agent.AgentCommands
 import cn.huohuas001.bot.events.commands.AdministrationCommands
 import cn.huohuas001.bot.events.commands.AuthenticationCommands
@@ -84,6 +85,10 @@ class GroupMessageHandler(
     fun onGroupMessage(event: GroupMessageEvent) {
         val groupId = event.groupOpenId ?: event.groupId
         val content = event.rawMessage.content ?: return
+
+        // 登记被动回复票据。机器人若没有 QQ 的「主动消息」权限，所有出站消息都必须带上
+        // msg_id 才不会被 40034105「主动消息失败, 无权限」拒绝。
+        QClient.rememberPassiveTicket(groupId, event.rawMessage.id)
 
         // 缓存发送者昵称（每次收到消息都更新）
         val senderName = event.sender?.username

@@ -37,9 +37,8 @@
 | 平台 | 状态 | JDK 要求 | 产物 |
 |------|------|----------|------|
 | **Spigot / Paper**（api-version 1.18+） | 活跃开发 | JDK 8+ | `HuHoBot-Penguin_Spigot-<版本>.jar` |
-| Nukkit / PMMP | 待适配 | — | — |
-| Velocity / BungeeCord | 待适配 | — | — |
-| Allay | 待适配 | — | — |
+| **Nukkit-MOT**（Bedrock） | 已适配 | JDK 17+ | `HuHoBot-Penguin_Nukkit-<版本>.jar` |
+| PMMP / Velocity / BungeeCord / Allay | 待适配 | — | — |
 
 ---
 
@@ -63,12 +62,21 @@ cd PenguinAgent
 > ```bash
 > git submodule update --init --recursive
 > ```
+>
+> 若 SSH 不可用，子模块可改用 HTTPS 拉取：
+> ```bash
+> git clone https://github.com/HuHoBot/qqpd-bot-java.git deps/qqpd-bot-java
+> git -C deps/qqpd-bot-java checkout 0287d4e
+> ```
 
-构建产物位于 `build/gather-jar/` 目录。
+构建产物位于 `build/gather-jar/` 目录，一次构建会同时产出 Spigot 与 Nukkit 两个平台的 jar。
 
 ### 3. 安装
 
-将 `HuHoBot-Penguin_Spigot-<版本>.jar` 放入服务器 `plugins/` 目录，重启服务器。
+**Spigot / Paper**：将 `HuHoBot-Penguin_Spigot-<版本>.jar` 放入服务器 `plugins/` 目录，重启服务器。
+
+**Nukkit-MOT**：将 `HuHoBot-Penguin_Nukkit-<版本>.jar` 放入服务端 `plugins/` 目录，重启服务端。
+需要 Nukkit-MOT（Java 17 运行时）；本插件同时面向 Bedrock 客户端，游戏内命令、聊天与背包渲染均按 Bedrock 语义适配。
 
 ### 4. 配置
 
@@ -418,11 +426,22 @@ PenguinAgent/
 ├── server/Spigot/                # Spigot/Paper 平台适配
 │   └── src/main/kotlin/cn/huohuas001/huhobotPenguin/spigot/
 │       ├── HuHoBotSpigot.kt      # 插件主类
+│       ├── inventory/            # 背包 PNG 渲染（Faithful 贴图 + 玩家模型）
 │       └── commands/
 │           ├── AtCommand.kt      # /at 命令
 │           ├── HuHoBotCommand.kt # /huhobot 命令
 │           └── ...
-└── server/AdapterCommon/         # 适配器公共层
+├── server/Nukkit/                # Nukkit-MOT（Bedrock）平台适配
+│   └── src/main/
+│       ├── kotlin/cn/huohuas001/huhobotPenguin/nukkit/
+│       │   ├── HuHoBotNukkit.kt  # 插件主类（配置/WebUI/服务器信息桥接）
+│       │   ├── commands/         # 命令分发、输出捕获、/huhobot /at /qqbind /send
+│       │   ├── events/           # 聊天与进退服事件
+│       │   ├── inventory/        # 背包快照 + PNG 渲染 + Bedrock→Java 贴图表
+│       │   └── manager/          # 配置迁移、扫码登录
+│       ├── java/.../inventory/PlayerModelRenderer.java   # 玩家模型软件光栅化
+│       └── resources/{plugin.yml,config.yml}
+└── server/AdapterCommon/         # 适配器公共层（YAML 读写）
 ```
 
 ---
@@ -431,18 +450,22 @@ PenguinAgent/
 
 ### 环境要求
 
-- **JDK 24**（构建时）/ **JDK 8+**（运行时，Spigot 模块）
-- **Gradle 9.6.1**（使用项目自带的 `gradlew`）
+- **构建**：JDK 8（`common-Bot` / `server-Spigot`）与 JDK 17（`server-Nukkit`）；缺失的工具链由 `settings.gradle.kts` 中的 foojay 解析器自动下载
+- **运行时**：Spigot 模块 JDK 8+，Nukkit 模块 JDK 17+
+- **Gradle 8.14.5**（使用项目自带的 `gradlew`）
 - **Git**（子模块管理）
 
 ### 构建命令
 
 ```bash
-# 完整构建
+# 完整构建（同时产出 Spigot 与 Nukkit）
 ./gradlew clean build
 
 # 仅构建 Spigot 产物
 ./gradlew :server-Spigot:shadowJar
+
+# 仅构建 Nukkit 产物
+./gradlew :server-Nukkit:shadowJar
 
 # 构建产物位置
 ls build/gather-jar/
@@ -453,11 +476,32 @@ ls build/gather-jar/
 | 模块 | 说明 |
 |------|------|
 | `common-Bot` | 平台无关核心：QQ 客户端、群消息分发、指令、AI Agent、WebUI |
-| `server-AdapterCommon` | 服务端适配公共层 |
+| `server-AdapterCommon` | 服务端适配公共层：YAML 配置读写（含保留注释的定点写入） |
 | `server-Spigot` | Spigot/Paper 平台适配（活跃） |
-| `server-Nukkit` | Nukkit/PMMP 平台适配（待适配） |
-| `server-Proxy` | Velocity/BungeeCord 代理适配（待适配） |
-| `server-Allay` | Allay 平台适配（待适配） |
+| `server-Nukkit` | Nukkit-MOT 平台适配（已适配） |
+| `server-Proxy` | Velocity/BungeeCord 代理适配（未纳入构建） |
+| `server-Allay` | Allay 平台适配（未纳入构建） |
+
+---
+
+## Nukkit-MOT 平台说明
+
+Nukkit 适配器与 Spigot 适配器**共用同一套配置键、QQ 指令与 AI Agent**，差异集中在平台能力上：
+
+| 能力 | Spigot | Nukkit-MOT |
+|------|--------|------------|
+| 命令注册 | `plugin.yml` + 额外命令类 | 全部由 `plugin.yml` 声明，`onCommand` 统一分发 |
+| 命令输出捕获 | log4j2 root logger Appender | 同左（Nukkit 的 `MainLogger` 本身即 log4j2） |
+| 服务端日志 | `logs/latest.log` | `logs/server.log` |
+| 物品贴图 | `Material` 扁平名 | Bedrock `id + meta` / 命名空间 id → Java 贴图名映射表（706 条 id/meta + 47 条别名） |
+| 玩家皮肤 | Profile / SkinsRestorer | 玩家 `Skin`（RGBA）+ 内置默认皮肤 |
+| PlaceholderAPI | 支持（反射） | 无对应插件，`%占位符%` 原样保留 |
+| 白名单命令 | `whitelist add/remove` | 同左 |
+| 扫码登录 | 阻塞主线程 | **异步执行**，不会挂起服务端启动 |
+| bStats | 已接入 | 未接入 |
+
+配置文件写入（WebUI 保存、扫码写回凭据、自动收录群号）使用**保留注释的定点写入**：
+只改写目标键所在的行，`config.yml` 中的说明注释不会像整体重新序列化那样被抹掉。
 
 ---
 
