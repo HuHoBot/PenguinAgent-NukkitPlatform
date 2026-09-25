@@ -83,6 +83,9 @@ tasks {
 
     processResources {
         val ver = project.version.toString()
+        // 必须把版本号声明为任务输入：否则只改版本号时该任务会被判定为 up-to-date，
+        // plugin.yml 里的 @version@ 不会被重新替换，打出来的 jar 会带着上一个版本号。
+        inputs.property("version", ver)
         filesMatching("plugin.yml") {
             filter(org.apache.tools.ant.filters.ReplaceTokens::class, mapOf(
                 "tokens" to mapOf("version" to ver)
