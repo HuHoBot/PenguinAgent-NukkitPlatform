@@ -140,14 +140,14 @@ class BindingCommands : CommandSupport() {
 
     private fun latestLine(state: UpdateChecker.UpdateState): String = when {
         !state.checked -> "最新版本：暂时无法检查"
-        state.outdated -> "最新版本：${state.latest}（检测到更新，请前往官网下载）"
+        state.outdated -> "最新版本：${state.latest}（检测到更新，请前往 GitHub Releases 下载）"
         else -> "最新版本：${state.latest}（已是最新）"
     }
 
     private fun versionText(current: String, latestLine: String): String =
         "您正在使用 HuHoBot-Penguin $current 版本\n" +
             "$latestLine\n" +
-            "官网：${UpdateChecker.SITE_URL}\n" +
+            "发行版：${UpdateChecker.RELEASES}\n" +
             "GitHub：${UpdateChecker.PROJECT}\n" +
             "文档：${UpdateChecker.DOCS}\n" +
             "开发者：Shabby-666（${QClient.escapeMarkdown("_Chinese_Player_")}）"

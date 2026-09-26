@@ -16,7 +16,10 @@ import java.util.concurrent.atomic.AtomicBoolean
  * 优先使用官网版本接口，失败再回退到 GitHub Releases（老旧 JDK 可能不信任 GitHub 根证书）。
  */
 object UpdateChecker {
-    private const val GITHUB_API_PATH = "https://api.github.com/repos/HuHoBot/PenguinAgent/releases"
+    // ⚠️ 必须指向本仓库：Nukkit 分支的版本线与上游 Spigot 仓库不同，
+    // 指向上游会永远读到 Spigot 的版本号，本仓库发的 Release 也就永远检测不到。
+    private const val GITHUB_REPO = "HuHoBot/PenguinAgent-NukkitPlatform"
+    private const val GITHUB_API_PATH = "https://api.github.com/repos/$GITHUB_REPO/releases"
 
     /** 国内网络下 GitHub 直连常被拦截，优先走 gh-proxy 代理。 */
     private val GITHUB_RELEASES_URLS = listOf(
@@ -24,7 +27,7 @@ object UpdateChecker {
         GITHUB_API_PATH
     )
     private const val OFFICIAL_SITE = "https://huhobot.dpdns.org"
-    private const val PROJECT_URL = "https://github.com/HuHoBot/PenguinAgent"
+    private const val PROJECT_URL = "https://github.com/$GITHUB_REPO"
     private const val DOCS_URL = "https://docs.huhobot.dpdns.org/"
     private const val TIMEOUT_MILLIS = 15_000
     private const val CACHE_MILLIS = 10 * 60 * 1000L
@@ -32,6 +35,9 @@ object UpdateChecker {
     const val SITE_URL = OFFICIAL_SITE
     const val PROJECT = PROJECT_URL
     const val DOCS = DOCS_URL
+
+    /** 本分支的发行包只发布在 GitHub Releases，官网站点仍是上游 Spigot 分支的。 */
+    const val RELEASES = "$PROJECT_URL/releases/latest"
 
     private var latestVersion: String? = null
     private var checkedAt: Long = 0L
@@ -46,7 +52,7 @@ object UpdateChecker {
             val state = check(plugin, force = true)
             if (state.outdated && !notifiedOutdated) {
                 notifiedOutdated = true
-                plugin.log_info("发现新版本 ${state.latest}，请前往官网 $OFFICIAL_SITE 下载更新")
+                plugin.log_info("发现新版本 ${state.latest}，请前往 $RELEASES 下载更新")
             }
         }
     }
