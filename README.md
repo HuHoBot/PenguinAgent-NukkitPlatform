@@ -356,6 +356,33 @@ QQ 群中的 @消息会自动解析为 `§9@玩家名§r`（蓝色高亮），�
 - `{name}` / `{nick}` —— 发送者昵称
 - `{message}` / `{msg}` —— 消息内容
 
+### PlaceholderAPI 占位符（`%xxx%`）
+
+上面的 `{xxx}` 是本插件自己的格式；除此之外，配置里写成 `%xxx%` 的内容会交给
+**PlaceholderAPI** 解析，例如：
+
+```yaml
+chat-format:
+  from-game: "[%playertitle%] {name}: {message}"
+```
+
+| 平台 | 需要安装 | 说明 |
+|------|----------|------|
+| Nukkit-MOT | [PlaceholderAPI-nukkit](https://github.com/Creeperface01/PlaceholderAPI-nukkit)（它自身依赖 `KotlinLib`） | 插件以 `softdepend` 声明，**反射接入**，不需要一起打包 |
+| Spigot / Paper | [PlaceholderAPI](https://www.spigotmc.org/resources/placeholderapi.6245/) | 同上，反射接入 |
+
+未安装、未启用或接入失败时 `%占位符%` **原样保留**（不会报错、不会中断消息发送）。
+可通过 `placeholder-api.enabled: false` 关掉解析。启动日志会明确提示接入结果：
+
+```
+[HuHoBot] 已接入 PlaceholderAPI（PlaceholderAPI 2.2）
+[HuHoBot] 未检测到 PlaceholderAPI，配置中的 %占位符% 将原样保留
+```
+
+> 注意 Nukkit 版 PlaceholderAPI 的插件名是 `PlaceholderAPI`，主类却是
+> `com.creeperface.nukkit.placeholderapi.PlaceholderPlugin`——`plugin.yml` 里按**插件名**匹配
+> （`getPlugin("PlaceholderAPI")`），不是主类名。
+
 ### 敏感词审核
 
 支持两级过滤：
@@ -481,7 +508,7 @@ ls build/gather-jar/
 | 服务端日志 | `logs/server.log` |
 | 物品贴图 | Bedrock `id + meta` / 命名空间 id → Java 贴图名映射表（706 条 id/meta + 47 条别名） |
 | 玩家皮肤 | 玩家 `Skin`（RGBA）+ 内置默认皮肤 |
-| 占位符 | 无 PlaceholderAPI，`%占位符%` 原样保留 |
+| 占位符 | [PlaceholderAPI-nukkit](https://github.com/Creeperface01/PlaceholderAPI-nukkit)（反射接入，`softdepend`；未装则 `%占位符%` 原样保留） |
 | 白名单命令 | `whitelist add/remove` |
 | 扫码登录 | **异步执行**，不会挂起服务端启动 |
 | bStats | 未接入 |

@@ -1,6 +1,6 @@
 # Changelog
 
-## v1.14.0（2026-09-25）
+## v1.13.0（2026-09-26）
 
 ### Bug 修复
 
@@ -32,6 +32,11 @@
   - feat: 背包 / 末影箱 PNG 渲染 —— 移植 Faithful 贴图管线与玩家模型渲染器，新增 Bedrock→Java 物品贴图映射表（706 条 id/meta + 47 条命名空间别名）
   - feat: 离线背包快照（退服采集 + 定时全量 + NBT 落盘），支持离线玩家查询
   - feat: 服务器插件列表 / 命令帮助 / 日志读取，供 AI Agent 使用
+- feat: **Nukkit 接入 PlaceholderAPI** —— 对齐上游 v1.13.0 的 PlaceholderAPI 能力，对接
+  [PlaceholderAPI-nukkit](https://github.com/Creeperface01/PlaceholderAPI-nukkit)：配置中的
+  `%占位符%` 交给它解析（如 `chat-format.from-game`）。与 Spigot 侧同一套做法，**全程反射、
+  不引入编译期依赖**（上游是 `repo.opencollab.dev` 的 SNAPSHOT，不让它绑架本仓库构建）；
+  未安装 / 未启用 / 接入失败时文本原样保留，`plugin.yml` 声明为 `softdepend`
 - feat: `YamlConfig` 新增保留注释的定点写入（`set` / `save` / `flatten`），只改写目标键所在行
 - feat: `YamlFileEditor` —— 基于行的 YAML 写入器，WebUI 保存不再抹掉 `config.yml` 的说明注释
 
@@ -45,7 +50,7 @@
 
 ### 说明
 
-- Nukkit 侧暂未接入 bStats；PlaceholderAPI 在 Nukkit 无对应插件，`%占位符%` 原样保留
+- Nukkit 侧暂未接入 bStats
 - 背包渲染资源（约 11 MB）在构建时从 `server/Spigot/src/main/resources/inventory` 同步，不在仓库中重复存放
 
 ---

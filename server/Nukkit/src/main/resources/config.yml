@@ -100,7 +100,10 @@ update-check:
   # 留空使用内置数据源；可填逗号分隔的多个 URL，例如国内自建接口。
   url: ""
 
-# PlaceholderAPI：Nukkit 侧暂无对应插件，开启后配置中的 %占位符% 会原样保留。
+# PlaceholderAPI（Nukkit 版）：安装后配置里的 %占位符% 会交给它解析
+# （如 chat-format.from-game: "[%playertitle%] {name}: {message}"）。
+# 需要插件：https://github.com/Creeperface01/PlaceholderAPI-nukkit（它自身依赖 KotlinLib）
+# 未安装、未启用或接入失败时文本原样保留。默认配置本身不含任何 %占位符%。
 placeholder-api:
   enabled: true
 

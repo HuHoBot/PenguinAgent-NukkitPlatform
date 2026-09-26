@@ -3,10 +3,13 @@ main: cn.huohuas001.huhobotPenguin.nukkit.HuHoBotNukkit
 version: '@version@'
 api: ["1.0.0"]
 load: POSTWORLD
+# 可选依赖：装了 https://github.com/Creeperface01/PlaceholderAPI-nukkit 才解析 %占位符%，
+# 没装则配置中的 %占位符% 原样保留。走反射接入，不引入编译期依赖。
+softdepend: [PlaceholderAPI]
 author: HuoHuas001
 description: 将 QQ 群机器人接入 Nukkit 服务器：双向聊天转发、白名单管理、AI Agent 与 WebUI 配置
 prefix: HuHoBot
-website: https://github.com/HuHoBot/PenguinAgent
+website: https://github.com/HuHoBot/PenguinAgent-NukkitPlatform
 
 commands:
   huhobot:

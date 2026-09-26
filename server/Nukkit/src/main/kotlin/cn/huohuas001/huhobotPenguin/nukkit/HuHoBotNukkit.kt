@@ -23,6 +23,7 @@ import cn.huohuas001.huhobotPenguin.nukkit.commands.SendCommand
 import cn.huohuas001.huhobotPenguin.nukkit.events.PlayerEvents
 import cn.huohuas001.huhobotPenguin.nukkit.inventory.OfflineInventorySnapshots
 import cn.huohuas001.huhobotPenguin.nukkit.inventory.InventoryRenderer
+import cn.huohuas001.huhobotPenguin.nukkit.integration.PlaceholderApiSupport
 import cn.huohuas001.huhobotPenguin.nukkit.manager.ConfigMigrator
 import cn.huohuas001.huhobotPenguin.nukkit.manager.QrLoginManager
 import cn.nukkit.command.Command
@@ -65,6 +66,7 @@ class HuHoBotNukkit : PluginBase(), HuHoBot {
         offlineInventorySnapshots = OfflineInventorySnapshots(this).also { it.start() }
 
         server.pluginManager.registerEvents(PlayerEvents(this), this)
+        PlaceholderApiSupport.setup(this)
         initializeRuntime()
         log_info("HuHoBotPenguin-NukkitPlatform 已加载（平台：Nukkit-MOT，服务端版本：${server.version}）")
     }
@@ -93,6 +95,7 @@ class HuHoBotNukkit : PluginBase(), HuHoBot {
         config.reload()
         ConfigMigrator.upgrade(config) { log_info(it) }
         InventoryRenderer.init(dataFolder, config.inventoryRender(), this::log_warning)
+        PlaceholderApiSupport.setup(this)
         reloadRuntimeConfig()
     }
 
@@ -164,6 +167,8 @@ class HuHoBotNukkit : PluginBase(), HuHoBot {
     override fun getUpdateCheckUrls(): String = config.updateCheckUrls()
     override fun isAgentFetchResultHidden(): Boolean = config.agentFetchResultHidden()
     override fun isPlaceholderApiEnabled(): Boolean = config.placeholderApiEnabled()
+    override fun applyPlaceholders(playerName: String?, text: String): String =
+        PlaceholderApiSupport.apply(playerName, text)
     override fun isAuthenticationEnabled(): Boolean = config.authenticationEnabled()
     override fun shouldSuppressQqBotConsoleOutput(): Boolean = config.suppressQqBotConsoleOutput()
     override fun getFullAmount(): Boolean = config.fullForwardingByDefault()
