@@ -40,6 +40,8 @@
 
 本仓库的 `./gradlew build` **只构建 Nukkit**。Spigot / Paper、PMMP、Velocity、BungeeCord、Allay 不在本分支的构建范围内。
 
+> Nukkit-MOT 适配版本维护在独立仓库 [PenguinAgent-NukkitPlatform](https://github.com/HuHoBot/PenguinAgent-NukkitPlatform)，不由本仓库维护，功能与 issue 请前往该仓库反馈。
+
 ---
 
 ## 快速开始
@@ -570,6 +572,58 @@ class MyAddon : PluginBase(), Listener {
 
 **关于限流**：对方按 IP 限流，且**非常严**（实测间隔 2.5 秒的两次请求就会 429）。
 默认冷却 30 秒，不建议调小。
+
+---
+
+## 扩展（Addon）开发
+
+第三方 Nukkit 插件可以给 HuHoBot 增加 QQ 群指令，不需要改主插件。
+
+### 最小例子
+
+```kotlin
+class MyAddon : PluginBase(), Listener {
+    override fun onEnable() {
+        val hub = server.pluginManager.getPlugin("HuHoBotPenguin-NukkitPlatform") as? HuHoBotNukkit
+            ?: return logger.error("找不到 HuHoBot")
+        server.pluginManager.registerEvents(this, this)
+        hub.registerAddon("MyAddon", "1.0.0", "示例扩展", "你")
+        hub.registerBotCommand("MyAddon", key = "天气", command = "say {params}")
+    }
+
+    @EventHandler
+    fun onCommand(event: OnBotCommand) {
+        if (event.message.commandKey != "天气") return
+        // 取消事件 = 不执行 command 模板里那条服务器命令，改由扩展自己回复
+        event.isCancelled = true
+        event.reply("今天晴")
+    }
+}
+```
+
+`plugin.yml` 里声明 `depend: ["HuHoBotPenguin-NukkitPlatform"]`，构建时
+`compileOnly(project(":server-Nukkit"))` 即可。
+
+### 两个事件
+
+| 事件 | 触发时机 | 取消的含义 |
+|------|----------|------------|
+| `OnBotRecvMsg` | 收到**每条**群消息（内置指令分发之前） | 该消息不再走内置指令与聊天转发 |
+| `OnBotCommand` | 命中**自定义命令**时 | 跳过 `command` 模板里那条服务器命令 |
+
+事件对象携带 `MsgPack`（不可变的群消息快照：`content` / `groupOpenId` /
+`sender` / `commandKey` / `commandArguments` / `attachments` …），并提供
+`reply()` / `replyMarkdown()` / `replyImage()` 三种回复方式。
+
+### ⚠️ 两个必须注意的坑
+
+1. **事件在主线程派发**。QQ 回调本身在 SDK 线程池上，HuHoBot 会切到主线程再触发事件，
+   所以监听器里可以直接碰服务端状态。但**别在主线程里做阻塞 IO**（HTTP 等）——
+   丢到 `server.scheduler.scheduleTask(this, runnable, true)` 里异步做。
+2. **`OnBotRecvMsg` / `OnBotCommand` / `MsgPack` 三个类由 HuHoBot 在 `onEnable` 里主动预热**。
+   Nukkit 每个插件一个 `PluginClassLoader`，它的查找顺序是「自己的 jar → 全局**已加载**类注册表」；
+   这几个类是懒加载的，不预热的话 addon 注册监听器时会 `ClassNotFoundException`。
+   写主插件时如果新增了要暴露给 addon 的类，记得一并加进 `preloadAddonApiClasses()`。
 
 ---
 

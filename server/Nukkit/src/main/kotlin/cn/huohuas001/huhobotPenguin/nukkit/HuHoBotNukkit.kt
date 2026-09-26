@@ -343,6 +343,56 @@ class HuHoBotNukkit : PluginBase(), HuHoBot {
         }
     }
 
+    // ---------------------------------------------------------------- 附属插件（addon center）
+
+    /**
+     * 把附属插件中心下载到的 jar 写进服务端 `plugins/` 目录。
+     *
+     * 只落盘、不做热加载 —— Nukkit 的插件在启动时一次性扫描，必须重启才生效。
+     * 与 Spigot 侧同一套实现：文件名先做安全校验，避免 `../` 之类的路径穿越。
+     */
+    override fun installAddon(fileName: String, bytes: ByteArray): Boolean =
+        writeAddonFile(fileName) { it.writeBytes(bytes) }
+
+    /** 删除已安装的附属插件文件。文件本就不存在时同样返回 true，交由调用方清理安装记录。 */
+    override fun removeAddon(fileName: String): Boolean {
+        val safeName = fileName.trim()
+        if (!isSafeAddonFileName(safeName)) {
+            log_warning("拒绝删除非法的附属插件文件名: $fileName")
+            return false
+        }
+        return try {
+            val target = pluginsFolder().resolve(safeName)
+            !target.exists() || target.delete()
+        } catch (error: Exception) {
+            log_error("删除附属插件 $safeName 失败: ${error.message}")
+            false
+        }
+    }
+
+    private fun writeAddonFile(fileName: String, write: (File) -> Unit): Boolean {
+        val safeName = fileName.trim()
+        if (!isSafeAddonFileName(safeName)) {
+            log_warning("拒绝写入非法的附属插件文件名: $fileName")
+            return false
+        }
+        return try {
+            val folder = pluginsFolder()
+            if (!folder.isDirectory && !folder.mkdirs()) return false
+            write(folder.resolve(safeName))
+            true
+        } catch (error: Exception) {
+            log_error("写入附属插件 $safeName 失败: ${error.message}")
+            false
+        }
+    }
+
+    /** 服务端插件目录。本插件的数据目录是 `plugins/<插件名>/`，所以父目录就是 `plugins/`。 */
+    private fun pluginsFolder(): File = dataFolder.parentFile?.takeIf { it.isDirectory } ?: File("plugins")
+
+    private fun isSafeAddonFileName(name: String): Boolean =
+        name.isNotEmpty() && !name.contains("..") && !name.contains('/') && !name.contains('\\')
+
     /** 供扫码登录写回凭据；走定点写入，保留 config.yml 里的注释。 */
     fun applyCredentialChanges(appId: String, secret: String) {
         config.set("bot.app-id", appId)
