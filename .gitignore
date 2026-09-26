@@ -55,3 +55,6 @@ bin/
 
 ### 非源码目录 ###
 杂七杂八的玩意/
+
+# 自动化迁移时 agent 的 Gradle 缓存兜底目录
+.gradle-user-home/
