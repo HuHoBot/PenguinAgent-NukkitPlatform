@@ -127,6 +127,12 @@ abstract class CommandSupport : BaseCommand() {
         params: String,
         admin: Boolean
     ) {
+        // 平台侧扩展（addon）回调。这里是自定义命令的唯一收口点：
+        // `/执行 <key>` 与 `/<key>` 快捷写法都会汇聚到这，所以钩子只会触发一次。
+        // 返回 true 表示扩展已自行接管（例如去调外部 API 并发图），
+        // 此时不再执行命令模板里那条服务器命令。
+        if (plugin.onBotCommand(event, event.msgSeq)) return
+
         val type = if (admin) "adminrun" else "run"
         executeGameCommand(
             plugin = plugin,

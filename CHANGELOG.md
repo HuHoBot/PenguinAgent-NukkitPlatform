@@ -37,6 +37,19 @@
   `%占位符%` 交给它解析（如 `chat-format.from-game`）。与 Spigot 侧同一套做法，**全程反射、
   不引入编译期依赖**（上游是 `repo.opencollab.dev` 的 SNAPSHOT，不让它绑架本仓库构建）；
   未安装 / 未启用 / 接入失败时文本原样保留，`plugin.yml` 声明为 `softdepend`
+- feat: **扩展（addon）体系在 Nukkit 侧补齐** —— 上游那套 `registerAddon` /
+  `registerBotCommand` / `OnBotRecvMsg` / `OnBotCommand` 只实现在 Spigot 模块，Nukkit 一直缺失。
+  现按 Nukkit 事件体系移植：
+  - `registerAddon()` / `registerBotCommand()` / `unregisterBotCommand()`
+  - `OnBotRecvMsg`（每条群消息）与 `OnBotCommand`（命中自定义命令）两个可取消事件
+  - 事件对象提供 `reply()` / `replyMarkdown()` / `replyImage()`；QQ 回调会切到主线程再派发事件
+  - ⚠️ `OnBotRecvMsg` / `OnBotCommand` / `MsgPack` 会在 `onEnable` 里**主动预热**：
+    Nukkit 每个插件一个 `PluginClassLoader`，查找顺序是「自己的 jar → 全局**已加载**类注册表」，
+    而这几个类是懒加载的；不预热的话 addon 注册监听器时会 `ClassNotFoundException`
+- fix: **两个扩展钩子从来没被调用过** —— `MessageProvider.onBotReceivedGroupMessage()` 与
+  `onBotCommand()` 在 Spigot 侧有实现、README 里也写着，但**全仓库没有任何调用点**，
+  第三方扩展事件实际从未触发。现分别接在群消息入口与自定义命令收口点
+  （`CommandSupport.executeCustomCommand` 是 `/执行 <key>` 与 `/<key>` 两条路径的唯一汇聚处）
 - feat: `YamlConfig` 新增保留注释的定点写入（`set` / `save` / `flatten`），只改写目标键所在行
 - feat: `YamlFileEditor` —— 基于行的 YAML 写入器，WebUI 保存不再抹掉 `config.yml` 的说明注释
 

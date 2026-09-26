@@ -108,6 +108,10 @@ class GroupMessageHandler(
                 return
             }
         }
+        // 平台侧扩展（addon）回调：每条群消息先交给第三方插件过一遍。
+        // 返回 true 表示扩展已消费该消息，不再进入内置命令分发与全量聊天转发。
+        if (plugin.onBotReceivedGroupMessage(event, event.msgSeq)) return
+
         when (dispatchCommand(event)) {
             BaseCommand.DispatchResult.CUSTOM_COMMAND -> Unit
 

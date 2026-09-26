@@ -39,6 +39,9 @@ object QClient {
     /** 同一条 msg_id 最多允许 5 次被动回复。 */
     private const val PASSIVE_MAX_SEQUENCE = 5
 
+    /** 异常描述时最多回溯几层 cause（够看清 QQ SDK → okhttp → JDK 的链路即可）。 */
+    private const val MAX_CAUSE_DEPTH = 5
+
     private val recallScheduler = Executors.newSingleThreadScheduledExecutor { runnable ->
         Thread(runnable, "Penguin-Keyboard-Recall").apply { isDaemon = true }
     }
@@ -59,6 +62,17 @@ object QClient {
 
     private lateinit var starter: Starter
     private lateinit var groupMessageHandler: GroupMessageHandler
+
+    /**
+     * QQ 客户端是否已经**完全**启动完毕。
+     *
+     * 光判断 `::starter.isInitialized` 不够：`starter.run()` 返回前后 SDK 内部还有一段
+     * 初始化，期间 `start0` 仍是 null，此时同步指令面板会抛
+     * `Cannot invoke "Start0.getAccessToken()" because "start0" is null`。
+     * addon 在 onEnable 里注册命令正好落在这个窗口里。
+     */
+    @Volatile
+    private var clientReady = false
 
     /** 收到群消息时登记被动回复票据，供后续出站消息复用。 */
     fun rememberPassiveTicket(groupOpenId: String, messageId: String?) {
@@ -84,8 +98,39 @@ object QClient {
 
     /** 有可用票据时把出站消息改造成被动回复。 */
     private fun V2MsgData.withPassiveTicket(groupOpenId: String): V2MsgData {
-        val ticket = nextPassiveTicket(groupOpenId) ?: return this
+        val ticket = nextPassiveTicket(groupOpenId) ?: run {
+            // 退化成主动消息 —— 没申请「主动消息」权限的机器人会被 40034105 拒掉。
+            // 这是出站失败最常见的原因，但原先没有任何日志，排查时只能看到一句 null。
+            BotShared.getPlugin().log_warning(
+                "群 $groupOpenId 无可用被动回复票据（消息已超过 " +
+                    "${PASSIVE_TICKET_TTL_MS / 1000}s 或本 msg_id 的 $PASSIVE_MAX_SEQUENCE 次已用尽），" +
+                    "本次将按主动消息发送，未获权限时会被 QQ 拒绝"
+            )
+            return this
+        }
         return setMsg_id(ticket.first).setMsg_seq(ticket.second)
+    }
+
+    /**
+     * 统一的异常描述。
+     *
+     * 只打 `error.message` 在这些出站路径上几乎没用 —— QQ SDK 走的是动态代理，
+     * 抛出来的异常经常 message 为 null，真正的信息在异常类型与 cause 链里。
+     */
+    private fun describe(error: Throwable): String {
+        val chain = mutableListOf<String>()
+        var current: Throwable? = error
+        var depth = 0
+        while (current != null && depth < MAX_CAUSE_DEPTH) {
+            val message = current.message
+            chain += current.javaClass.name + if (message.isNullOrBlank()) "" else ": $message"
+            current = current.cause
+            depth++
+        }
+        // 优先给出 QQ SDK 内部的栈顶，那才是真正发起请求的位置
+        val frame = error.stackTrace.firstOrNull { it.className.startsWith("io.github.kloping") }
+            ?: error.stackTrace.firstOrNull()
+        return chain.joinToString("  ←  ") + (frame?.let { "\n    at $it" } ?: "")
     }
 
     /** 获取 QQ Bot Starter 实例（供 Agent 群管理 API 使用）。 */
@@ -119,6 +164,11 @@ object QClient {
 
     fun syncGroupPanels() {
         if (!::starter.isInitialized || !::groupMessageHandler.isInitialized) return
+        if (!clientReady) {
+            // 客户端还没起完，这次同步必然失败；启动流程末尾会自己同步一次。
+            BotShared.getPlugin().log_debug("QQ 客户端尚未就绪，跳过本次指令面板同步")
+            return
+        }
         val plugin = BotShared.getPlugin()
         val allCommands = groupMessageHandler.registeredCommands()
         val commandList = plugin.getCommandList()
@@ -155,6 +205,7 @@ object QClient {
 
         // 关闭旧连接（只关 WebSocket，不杀线程池）
         if (::starter.isInitialized) {
+            clientReady = false
             try {
                 starter.softClose()
             } catch (_: Exception) {}
@@ -169,6 +220,7 @@ object QClient {
             starter.registerListenerHost(AgentInteractionListener())
             LoggerImpl.INSTANCE.setLogLevel(1)
             logFilePattern?.let { LoggerImpl.INSTANCE.setOutFile(it) }
+            clientReady = true
             syncGroupPanels()
             // 加载本地昵称缓存
             NicknameManager.load()
@@ -417,7 +469,7 @@ object QClient {
             scheduleKeyboardRecall(groupOpenId, keyboard, result)
             result?.id
         } catch (error: Exception) {
-            plugin.log_error("向QQ群 $groupOpenId 发送 Markdown 失败: ${error.message}")
+            plugin.log_error("向QQ群 $groupOpenId 发送 Markdown 失败: ${describe(error)}")
             null
         }
     }
@@ -445,7 +497,7 @@ object QClient {
             )
             true
         } catch (error: Exception) {
-            plugin.log_error("回复文本失败: ${error.message}")
+            plugin.log_error("回复文本失败: ${describe(error)}")
             false
         }
     }
@@ -475,7 +527,7 @@ object QClient {
             )
             true
         } catch (error: Exception) {
-            plugin.log_error("回复文本失败: ${error.message}")
+            plugin.log_error("回复文本失败: ${describe(error)}")
             false
         }
     }
@@ -519,7 +571,7 @@ object QClient {
             scheduleKeyboardRecall(groupOpenId, keyboard, result)
             true
         } catch (error: Exception) {
-            plugin.log_error("回复 Markdown 失败: ${error.message}")
+            plugin.log_error("回复 Markdown 失败: ${describe(error)}")
             false
         }
     }
@@ -562,7 +614,7 @@ object QClient {
             scheduleKeyboardRecall(groupId, keyboard, result)
             true
         } catch (error: Exception) {
-            plugin.log_error("回复 Markdown 失败: ${error.message}")
+            plugin.log_error("回复 Markdown 失败: ${describe(error)}")
             false
         }
     }
@@ -596,7 +648,7 @@ object QClient {
             }
             restApi.recallMessage(groupOpenId, messageId)
         } catch (error: Exception) {
-            plugin.log_warning("撤回QQ群 $groupOpenId 消息 $messageId 异常: ${error.message}")
+            plugin.log_warning("撤回QQ群 $groupOpenId 消息 $messageId 异常: ${describe(error)}")
         }
     }
 
@@ -620,7 +672,7 @@ object QClient {
             event.sendMessage(message)
             true
         } catch (error: Exception) {
-            plugin.log_error("回复图片消息失败: ${error.message}")
+            plugin.log_error("回复图片消息失败: ${describe(error)}")
             false
         }
     }
@@ -674,7 +726,7 @@ object QClient {
             val response = try {
                 GroupManagementApi.getGroupInfo(current, openId)
             } catch (error: Exception) {
-                plugin.log_warning("群名刷新失败 group=$openId 错误=${error.javaClass.simpleName}: ${error.message}")
+                plugin.log_warning("群名刷新失败 group=$openId 错误=${describe(error)}")
                 null
             }
             val name = response?.getString("group_name")

@@ -2,8 +2,12 @@ package cn.huohuas001.huhobotPenguin.nukkit
 
 import cn.huohuas001.bot.HuHoBot
 import cn.huohuas001.bot.QClient
+import cn.huohuas001.bot.addon.Addon
+import cn.huohuas001.bot.addon.AddonManager
 import cn.huohuas001.bot.agent.AgentCommandMode
 import cn.huohuas001.bot.events.commands.BaseCommand
+import cn.huohuas001.bot.events.commands.CustomCommandRegistry
+import cn.huohuas001.bot.events.commands.RegisteredCommand
 import cn.huohuas001.bot.provider.AdminMode
 import cn.huohuas001.bot.provider.ChatFormat
 import cn.huohuas001.bot.provider.CustomCommandDetail
@@ -13,6 +17,9 @@ import cn.huohuas001.bot.provider.PlayerEventFormat
 import cn.huohuas001.bot.provider.WhiteList
 import cn.huohuas001.bot.tools.Cancelable
 import cn.huohuas001.bot.web.WebUiServer
+import cn.huohuas001.huhobotPenguin.adapter.api.MsgPack
+import cn.huohuas001.huhobotPenguin.adapter.api.toMsgPack
+import cn.huohuas001.huhobotPenguin.adapter.api.withCommand
 import cn.huohuas001.huhobotPenguin.adapter.config.YamlConfig
 import cn.huohuas001.huhobotPenguin.nukkit.commands.AtCommand
 import cn.huohuas001.huhobotPenguin.nukkit.commands.CommandOutputAppender
@@ -20,6 +27,8 @@ import cn.huohuas001.huhobotPenguin.nukkit.commands.HuHoBotCommand
 import cn.huohuas001.huhobotPenguin.nukkit.commands.NukkitCommandExecutor
 import cn.huohuas001.huhobotPenguin.nukkit.commands.QqBindCommand
 import cn.huohuas001.huhobotPenguin.nukkit.commands.SendCommand
+import cn.huohuas001.huhobotPenguin.nukkit.events.OnBotCommand
+import cn.huohuas001.huhobotPenguin.nukkit.events.OnBotRecvMsg
 import cn.huohuas001.huhobotPenguin.nukkit.events.PlayerEvents
 import cn.huohuas001.huhobotPenguin.nukkit.inventory.OfflineInventorySnapshots
 import cn.huohuas001.huhobotPenguin.nukkit.inventory.InventoryRenderer
@@ -30,13 +39,16 @@ import cn.nukkit.command.Command
 import cn.nukkit.command.CommandSender
 import cn.nukkit.command.PluginIdentifiableCommand
 import cn.nukkit.command.data.CommandData
+import cn.nukkit.event.Event
 import cn.nukkit.level.Sound
 import cn.nukkit.plugin.PluginBase
 import cn.nukkit.plugin.PluginLogger
 import com.alibaba.fastjson.JSONArray
 import com.alibaba.fastjson.JSONObject
+import io.github.kloping.qqbot.api.v2.GroupMessageEvent
 import java.io.File
 import java.util.concurrent.CompletableFuture
+import java.util.concurrent.TimeUnit
 
 /**
  * Nukkit（Nukkit-MOT）平台适配器。
@@ -67,6 +79,7 @@ class HuHoBotNukkit : PluginBase(), HuHoBot {
 
         server.pluginManager.registerEvents(PlayerEvents(this), this)
         PlaceholderApiSupport.setup(this)
+        preloadAddonApiClasses()
         initializeRuntime()
         log_info("HuHoBotPenguin-NukkitPlatform 已加载（平台：Nukkit-MOT，服务端版本：${server.version}）")
     }
@@ -169,6 +182,79 @@ class HuHoBotNukkit : PluginBase(), HuHoBot {
     override fun isPlaceholderApiEnabled(): Boolean = config.placeholderApiEnabled()
     override fun applyPlaceholders(playerName: String?, text: String): String =
         PlaceholderApiSupport.apply(playerName, text)
+
+    /**
+     * 每条群消息都会先走这里，把消息交给第三方扩展（Nukkit 事件 `OnBotRecvMsg`）。
+     * 返回 true 表示扩展已接管（事件被取消），消息不再进入内置命令分发与聊天转发。
+     */
+    override fun onBotReceivedGroupMessage(event: GroupMessageEvent, messageSequence: Int): Boolean {
+        val msgPack = event.toMsgPack(messageSequence)
+        val botEvent = OnBotRecvMsg(
+            msgPack = msgPack,
+            replyTextAction = { text ->
+                QClient.replyText(msgPack.groupOpenId, msgPack.messageId, msgPack.messageSequence, text)
+            },
+            replyMarkdownAction = { markdown, keyboard ->
+                QClient.replyMarkdown(
+                    msgPack.groupOpenId, msgPack.messageId, msgPack.messageSequence, markdown, keyboard
+                )
+            },
+            replyImageAction = { text, imageUrl -> QClient.replyWithImg(event, text, imageUrl) }
+        )
+        callSyncEvent(botEvent)
+        return botEvent.isCancelled
+    }
+
+    /**
+     * 命中自定义命令时触发（Nukkit 事件 `OnBotCommand`）。
+     * 返回 true 表示扩展已自行处理，命令模板里那条服务器命令会被跳过。
+     */
+    override fun onBotCommand(event: GroupMessageEvent, messageSequence: Int): Boolean {
+        val msgPack = event.toMsgPack(messageSequence).withCommand(event.rawMessage.content.orEmpty())
+        val botEvent = OnBotCommand(
+            msgPack = msgPack,
+            replyTextAction = { text ->
+                QClient.replyText(msgPack.groupOpenId, msgPack.messageId, msgPack.messageSequence, text)
+            },
+            replyMarkdownAction = { markdown, keyboard ->
+                QClient.replyMarkdown(
+                    msgPack.groupOpenId, msgPack.messageId, msgPack.messageSequence, markdown, keyboard
+                )
+            },
+            replyImageAction = { text, imageUrl -> QClient.replyWithImg(event, text, imageUrl) }
+        )
+        callSyncEvent(botEvent)
+        return botEvent.isCancelled
+    }
+
+    /**
+     * 在主线程触发事件。
+     *
+     * QQ 消息回调跑在 SDK 的线程池上，而扩展多半要碰服务端状态（发命令、读玩家数据），
+     * 必须在主线程执行。已经在主线程时直接调用，避免自己等自己造成死锁。
+     */
+    private fun <T : Event> callSyncEvent(event: T): T {
+        if (server.isPrimaryThread) {
+            server.pluginManager.callEvent(event)
+            return event
+        }
+        return try {
+            val future = CompletableFuture<T>()
+            server.scheduler.scheduleTask(this) {
+                try {
+                    server.pluginManager.callEvent(event)
+                    future.complete(event)
+                } catch (error: Throwable) {
+                    future.completeExceptionally(error)
+                }
+            }
+            future.get(EVENT_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+        } catch (error: Exception) {
+            log_error("同步触发 Nukkit 事件失败: ${error.message}")
+            event
+        }
+    }
+
     override fun isAuthenticationEnabled(): Boolean = config.authenticationEnabled()
     override fun shouldSuppressQqBotConsoleOutput(): Boolean = config.suppressQqBotConsoleOutput()
     override fun getFullAmount(): Boolean = config.fullForwardingByDefault()
@@ -451,6 +537,110 @@ class HuHoBotNukkit : PluginBase(), HuHoBot {
     private fun findSnapshot(playerName: String) =
         if (::offlineInventorySnapshots.isInitialized) offlineInventorySnapshots.find(playerName) else null
 
+    // ---------------------------------------------------------------- 扩展（addon）API
+
+    /**
+     * 预热扩展 API 涉及的类。
+     *
+     * Nukkit 给每个插件一个独立的 PluginClassLoader，其 `findClass` 的查找顺序是
+     * 「自己的 jar → JavaPluginLoader 的全局**已加载**类注册表」（父加载器在最前面，
+     * 但只含服务端自带的库）。而这些事件类是懒加载的 —— 不预热的话，addon 在自己的
+     * onEnable 里注册 `OnBotCommand` 监听器时会因找不到类而失败，且要等到第一条
+     * QQ 指令才暴露出来。这里主动触发一次类加载，把它们登记进全局注册表。
+     */
+    private fun preloadAddonApiClasses() {
+        for (clazz in listOf(OnBotRecvMsg::class.java, OnBotCommand::class.java, MsgPack::class.java)) {
+            try {
+                Class.forName(clazz.name, true, clazz.classLoader)
+            } catch (error: Throwable) {
+                log_warning("预热扩展 API 类 ${clazz.name} 失败: ${error.message}")
+            }
+        }
+    }
+
+    /**
+     * 注册一个扩展。
+     *
+     * 第三方插件先 `server.pluginManager.getPlugin("HuHoBotPenguin-NukkitPlatform")`
+     * 拿到本插件实例，再调用本方法；随后用 [registerBotCommand] 注册命令，
+     * 或监听 `OnBotRecvMsg` / `OnBotCommand` 自己处理。
+     *
+     * @param name 扩展名称，全局唯一
+     */
+    fun registerAddon(
+        name: String,
+        version: String = "1.0.0",
+        description: String = "",
+        author: String = ""
+    ): Boolean {
+        if (name.isBlank()) {
+            log_error("registerAddon 失败：扩展名称不能为空")
+            return false
+        }
+        AddonManager.register(Addon(name, version, description, author))
+        log_info("已注册扩展：$name v$version")
+        return true
+    }
+
+    /** 注册一条运行时自定义命令（不归属任何扩展）。 */
+    fun registerBotCommand(
+        key: String,
+        command: String,
+        permission: Int = 0,
+        pushMenu: Boolean = true
+    ): Boolean {
+        val registered = CustomCommandRegistry.register(
+            CustomCommandDetail(key, command, permission, pushMenu)
+        )
+        if (!registered) return false
+        submitAsync { QClient.syncGroupPanels() }
+        return true
+    }
+
+    /**
+     * 注册一条运行时自定义命令并归属到扩展。
+     *
+     * `command` 是**服务器命令模板**。若扩展想自己干活（调外部 API 等），
+     * 监听 `OnBotCommand` 并取消事件即可跳过这条模板命令。
+     *
+     * @param addonName 已通过 [registerAddon] 注册的扩展名称
+     * @param key       QQ 群里的命令 key（`/<key>` 或 `/执行 <key>` 触发）
+     */
+    fun registerBotCommand(
+        addonName: String,
+        key: String,
+        command: String,
+        permission: Int = 0,
+        pushMenu: Boolean = true
+    ): Boolean {
+        if (addonName !in AddonManager) {
+            log_error("registerBotCommand 失败：扩展 '$addonName' 未注册，请先调用 registerAddon")
+            return false
+        }
+        val registered = CustomCommandRegistry.register(
+            CustomCommandDetail(key, command, permission, pushMenu)
+        )
+        if (!registered) return false
+        AddonManager.addCommand(
+            addonName,
+            RegisteredCommand(
+                command = key,
+                describe = command,
+                onlyAdmin = permission > 0,
+                source = addonName
+            )
+        )
+        submitAsync { QClient.syncGroupPanels() }
+        return true
+    }
+
+    /** 注销运行时自定义命令。配置文件里的命令不会被删除。 */
+    fun unregisterBotCommand(key: String): Boolean {
+        val removed = CustomCommandRegistry.unregister(key)
+        if (removed) submitAsync { QClient.syncGroupPanels() }
+        return removed
+    }
+
     // ---------------------------------------------------------------- 日志
 
     override fun log_info(msg: String) = pluginLogger.info(msg)
@@ -466,5 +656,8 @@ class HuHoBotNukkit : PluginBase(), HuHoBot {
 
         /** 单次返回的最大日志窗口行数。 */
         const val MAX_LOG_WINDOW_LINES = 1200
+
+        /** 等待主线程派发扩展事件的超时。超时后按「扩展未处理」继续，不卡住 QQ 回调线程。 */
+        const val EVENT_TIMEOUT_SECONDS = 30L
     }
 }
