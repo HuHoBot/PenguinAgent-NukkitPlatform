@@ -1,27 +1,7 @@
 name: Java CI & Release
 
 on:
-  push:
-    branches: [ "main", "dev", "master" ]
-    paths:
-      - '.github/workflows/build.yml'
-      - '.gitmodules'
-      - 'common/**'
-      - 'deps/qqpd-bot-java'
-      - 'deps/qqpd-bot-java/**'
-      - 'server/**'
-      - 'build.gradle.kts'
-    tags:
-      - 'v*' # 匹配 v 开头的标签
-  pull_request:
-    paths:
-      - '.github/workflows/build.yml'
-      - '.gitmodules'
-      - 'common/**'
-      - 'deps/qqpd-bot-java'
-      - 'deps/qqpd-bot-java/**'
-      - 'server/**'
-      - 'build.gradle.kts'
+  workflow_dispatch:   # 仅手动触发
 
 env:
   GRADLE_VERSION: 8.14.5
