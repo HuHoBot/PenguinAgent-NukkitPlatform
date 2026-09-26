@@ -40,6 +40,8 @@
 
 本仓库的 `./gradlew build` **只构建 Nukkit**。Spigot / Paper、PMMP、Velocity、BungeeCord、Allay 不在本分支的构建范围内。
 
+> Nukkit-MOT 适配版本维护在独立仓库 [PenguinAgent-NukkitPlatform](https://github.com/HuHoBot/PenguinAgent-NukkitPlatform)，不由本仓库维护，功能与 issue 请前往该仓库反馈。
+
 ---
 
 ## 快速开始

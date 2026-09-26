@@ -99,15 +99,15 @@ class GroupMessageHandler(
             if (isNew) NicknameManager.save()
         }
 
-        if(!content.contains("查信息")){
-            if (!isAllowedGroup(groupId)) {
-                // 陌生群首次发来消息时自动收录，随后该群即可正常使用
-                if (plugin.getGroupOpenIdList().isNotEmpty() && plugin.addGroupOpenId(groupId)) {
-                    GroupDirectory.markAdded(groupId)
-                }
-                return
+        val configured = plugin.getGroupOpenIdList()
+        // 群列表为空或未收录该群时，收到任意消息即自动写入 bot.groups
+        if (configured.isEmpty() || groupId !in configured) {
+            if (plugin.addGroupOpenId(groupId)) {
+                GroupDirectory.markAdded(groupId)
             }
         }
+        if (!isAllowedGroup(groupId)) return
+
         // 平台侧扩展（addon）回调：每条群消息先交给第三方插件过一遍。
         // 返回 true 表示扩展已消费该消息，不再进入内置命令分发与全量聊天转发。
         if (plugin.onBotReceivedGroupMessage(event, event.msgSeq)) return
