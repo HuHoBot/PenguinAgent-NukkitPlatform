@@ -1,8 +1,8 @@
-# HuHoBotPenguin
+# HuHoBotPenguin-NukkitPlatform
 
-将 QQ 群机器人接入 Minecraft 服务器：游戏聊天与 QQ 群双向转发、白名单管理、在线查询、命令执行、敏感词审核、**AI Agent 智能管理**与 **WebUI 图形化配置**。
+将 QQ 群机器人接入 **Nukkit-MOT**（Bedrock）服务器：游戏聊天与 QQ 群双向转发、白名单管理、在线查询、命令执行、敏感词审核、**AI Agent 智能管理**与 **WebUI 图形化配置**。
 
-[HuHoBot-Penguin](https://github.com/HuHoBot/PenguinClient)的更新最激进与快速，功能最齐全的分支
+本仓库是 [HuHoBot-Penguin](https://github.com/HuHoBot/PenguinClient) 的 **Nukkit-MOT 平台分支**，只构建、只发布 Nukkit 插件。
 
 基于 [qqpd-bot-java](https://github.com/Kloping/qqpd-bot-java)（HuHoBot fork，以 git submodule 引入）。
 
@@ -36,9 +36,9 @@
 
 | 平台 | 状态 | JDK 要求 | 产物 |
 |------|------|----------|------|
-| **Spigot / Paper**（api-version 1.18+） | 活跃开发 | JDK 8+ | `HuHoBot-Penguin_Spigot-<版本>.jar` |
-| **Nukkit-MOT**（Bedrock） | 已适配 | JDK 17+ | `HuHoBot-Penguin_Nukkit-<版本>.jar` |
-| PMMP / Velocity / BungeeCord / Allay | 待适配 | — | — |
+| **Nukkit-MOT**（Bedrock） | 当前唯一构建目标 | JDK 17+ | `HuHoBot-Penguin_Nukkit-<版本>.jar` |
+
+本仓库的 `./gradlew build` **只构建 Nukkit**。Spigot / Paper、PMMP、Velocity、BungeeCord、Allay 不在本分支的构建范围内。
 
 ---
 
@@ -47,14 +47,14 @@
 ### 1. 准备
 
 1. 到 [q.qq.com](https://q.qq.com/) 申请机器人，获得 **AppID** 和 **Secret**
-2. 准备运行环境：**JDK 8+**（推荐 JDK 17+）
-3. 准备 Minecraft 服务器：**Paper 1.20.5+** 或兼容 Spigot 的服务端
+2. 准备运行环境：**JDK 17+**（构建公共模块时若缺少 JDK 8，Gradle 会自动下载工具链）
+3. 准备基岩版服务端：**Nukkit-MOT**（Java 17 运行时）
 
 ### 2. 构建
 
 ```bash
-git clone --recurse-submodules git@github.com:HuHoBot/PenguinAgent.git
-cd PenguinAgent
+git clone --recurse-submodules git@github.com:HuHoBot/PenguinAgent-NukkitPlatform.git
+cd PenguinAgent-NukkitPlatform
 ./gradlew build
 ```
 
@@ -69,13 +69,11 @@ cd PenguinAgent
 > git -C deps/qqpd-bot-java checkout 0287d4e
 > ```
 
-构建产物位于 `build/gather-jar/` 目录，一次构建会同时产出 Spigot 与 Nukkit 两个平台的 jar。
+构建产物位于 `build/gather-jar/` 目录，文件名为 `HuHoBot-Penguin_Nukkit-<版本>.jar`。
 
 ### 3. 安装
 
-**Spigot / Paper**：将 `HuHoBot-Penguin_Spigot-<版本>.jar` 放入服务器 `plugins/` 目录，重启服务器。
-
-**Nukkit-MOT**：将 `HuHoBot-Penguin_Nukkit-<版本>.jar` 放入服务端 `plugins/` 目录，重启服务端。
+将 `HuHoBot-Penguin_Nukkit-<版本>.jar` 放入 Nukkit-MOT 服务端的 `plugins/` 目录，重启服务端。
 需要 Nukkit-MOT（Java 17 运行时）；本插件同时面向 Bedrock 客户端，游戏内命令、聊天与背包渲染均按 Bedrock 语义适配。
 
 ### 4. 配置
@@ -308,7 +306,7 @@ QQ 群中的 @消息会自动解析为 `§9@玩家名§r`（蓝色高亮），�
 | `末影箱查看` `<在线玩家名>` | 查看指定在线玩家末影箱（仅管理员） |
 
 背包和末影箱默认使用内置底图。若要更换壁纸，将 PNG 放到
-`plugins/HuHoBotPenguin/inventory/backgrounds/`，再在 `config.yml` 中启用
+`plugins/HuHoBotPenguin-NukkitPlatform/inventory/backgrounds/`，再在 `config.yml` 中启用
 `inventory.render.custom-background.enabled`。格子和人物区域的圆角遮罩会始终保留。
 
 ### 认证命令
@@ -387,13 +385,13 @@ custom-commands:
 ## 项目结构
 
 ```
-PenguinAgent/
+PenguinAgent-NukkitPlatform/
 ├── build.gradle.kts              # 根构建文件
-├── settings.gradle.kts           # 模块配置
+├── settings.gradle.kts           # 模块配置（仅纳入 Nukkit）
 ├── deps/qqpd-bot-java/           # QQ Bot SDK（git submodule）
 ├── common/Bot/                   # 平台无关核心模块
 │   └── src/main/kotlin/cn/huohuas001/bot/
-│       ├── HuHoBot.kt            # 核心接口（各平台实现）
+│       ├── HuHoBot.kt            # 核心接口（Nukkit 实现）
 │       ├── QClient.kt            # QQ 客户端单例
 │       ├── NicknameManager.kt    # 昵称 ↔ openid 映射
 │       ├── MenuManager.kt        # 命令面板自动同步
@@ -423,15 +421,7 @@ PenguinAgent/
 │       │   ├── WebUiSchema.kt      # 配置表单 Schema
 │       │   └── WebUiPassword.kt    # 密码管理
 │       └── tools/                # 工具类
-├── server/Spigot/                # Spigot/Paper 平台适配
-│   └── src/main/kotlin/cn/huohuas001/huhobotPenguin/spigot/
-│       ├── HuHoBotSpigot.kt      # 插件主类
-│       ├── inventory/            # 背包 PNG 渲染（Faithful 贴图 + 玩家模型）
-│       └── commands/
-│           ├── AtCommand.kt      # /at 命令
-│           ├── HuHoBotCommand.kt # /huhobot 命令
-│           └── ...
-├── server/Nukkit/                # Nukkit-MOT（Bedrock）平台适配
+├── server/Nukkit/                # Nukkit-MOT（Bedrock）平台适配（本仓库唯一构建目标）
 │   └── src/main/
 │       ├── kotlin/cn/huohuas001/huhobotPenguin/nukkit/
 │       │   ├── HuHoBotNukkit.kt  # 插件主类（配置/WebUI/服务器信息桥接）
@@ -450,26 +440,25 @@ PenguinAgent/
 
 ### 环境要求
 
-- **构建**：JDK 8（`common-Bot` / `server-Spigot`）与 JDK 17（`server-Nukkit`）；缺失的工具链由 `settings.gradle.kts` 中的 foojay 解析器自动下载
-- **运行时**：Spigot 模块 JDK 8+，Nukkit 模块 JDK 17+
+- **构建**：JDK 17（`server-Nukkit`）。`common-Bot` 仍按 JDK 8 字节码编译，缺失的工具链由 `settings.gradle.kts` 中的 foojay 解析器自动下载
+- **运行时**：Nukkit-MOT，JDK 17+
 - **Gradle 8.14.5**（使用项目自带的 `gradlew`）
 - **Git**（子模块管理）
 
 ### 构建命令
 
 ```bash
-# 完整构建（同时产出 Spigot 与 Nukkit）
+# 构建 Nukkit 插件（默认，也是唯一纳入构建的平台）
 ./gradlew clean build
 
-# 仅构建 Spigot 产物
-./gradlew :server-Spigot:shadowJar
-
-# 仅构建 Nukkit 产物
+# 只打 Nukkit 产物
 ./gradlew :server-Nukkit:shadowJar
 
 # 构建产物位置
 ls build/gather-jar/
 ```
+
+`settings.gradle.kts` 没有纳入 Spigot、Allay、Proxy，因此 `./gradlew build` 不会编译这些模块。
 
 ### 模块说明
 
@@ -477,28 +466,25 @@ ls build/gather-jar/
 |------|------|
 | `common-Bot` | 平台无关核心：QQ 客户端、群消息分发、指令、AI Agent、WebUI |
 | `server-AdapterCommon` | 服务端适配公共层：YAML 配置读写（含保留注释的定点写入） |
-| `server-Spigot` | Spigot/Paper 平台适配（活跃） |
-| `server-Nukkit` | Nukkit-MOT 平台适配（已适配） |
-| `server-Proxy` | Velocity/BungeeCord 代理适配（未纳入构建） |
-| `server-Allay` | Allay 平台适配（未纳入构建） |
+| `server-Nukkit` | Nukkit-MOT 平台适配（本仓库唯一构建目标） |
 
 ---
 
 ## Nukkit-MOT 平台说明
 
-Nukkit 适配器与 Spigot 适配器**共用同一套配置键、QQ 指令与 AI Agent**，差异集中在平台能力上：
+本分支只维护 Nukkit-MOT 适配器。配置键、QQ 指令与 AI Agent 与上游 Penguin 分支保持一致，平台差异如下：
 
-| 能力 | Spigot | Nukkit-MOT |
-|------|--------|------------|
-| 命令注册 | `plugin.yml` + 额外命令类 | 全部由 `plugin.yml` 声明，`onCommand` 统一分发 |
-| 命令输出捕获 | log4j2 root logger Appender | 同左（Nukkit 的 `MainLogger` 本身即 log4j2） |
-| 服务端日志 | `logs/latest.log` | `logs/server.log` |
-| 物品贴图 | `Material` 扁平名 | Bedrock `id + meta` / 命名空间 id → Java 贴图名映射表（706 条 id/meta + 47 条别名） |
-| 玩家皮肤 | Profile / SkinsRestorer | 玩家 `Skin`（RGBA）+ 内置默认皮肤 |
-| PlaceholderAPI | 支持（反射） | 无对应插件，`%占位符%` 原样保留 |
-| 白名单命令 | `whitelist add/remove` | 同左 |
-| 扫码登录 | 阻塞主线程 | **异步执行**，不会挂起服务端启动 |
-| bStats | 已接入 | 未接入 |
+| 能力 | Nukkit-MOT |
+|------|------------|
+| 命令注册 | 全部由 `plugin.yml` 声明，`onCommand` 统一分发 |
+| 命令输出捕获 | log4j2 root logger Appender（Nukkit 的 `MainLogger` 本身即 log4j2） |
+| 服务端日志 | `logs/server.log` |
+| 物品贴图 | Bedrock `id + meta` / 命名空间 id → Java 贴图名映射表（706 条 id/meta + 47 条别名） |
+| 玩家皮肤 | 玩家 `Skin`（RGBA）+ 内置默认皮肤 |
+| 占位符 | 无 PlaceholderAPI，`%占位符%` 原样保留 |
+| 白名单命令 | `whitelist add/remove` |
+| 扫码登录 | **异步执行**，不会挂起服务端启动 |
+| bStats | 未接入 |
 
 配置文件写入（WebUI 保存、扫码写回凭据、自动收录群号）使用**保留注释的定点写入**：
 只改写目标键所在的行，`config.yml` 中的说明注释不会像整体重新序列化那样被抹掉。
@@ -594,7 +580,7 @@ Nukkit 适配器与 Spigot 适配器**共用同一套配置键、QQ 指令与 AI
 - feat: QQ→游戏消息支持 `&` 颜色符号转换（如 `&a绿色` → 绿色文字）
 
 **文档：**
-- docs: 文档全面改版适配 HuHoBotPenguin 分支
+- docs: 文档全面改版适配 HuHoBotPenguin-NukkitPlatform 分支
 
 ### v1.3.0-beta.1
 
@@ -670,7 +656,7 @@ Nukkit 适配器与 Spigot 适配器**共用同一套配置键、QQ 指令与 AI
 
 ### 第三方资源
 
-背包查看功能使用 [Faithful 32x](https://faithfulpack.net/) 贴图包（[Faithful License v3](server/Spigot/src/main/resources/inventory/faithful32x/LICENSE.txt)）。
+背包查看功能使用 [Faithful 32x](https://faithfulpack.net/) 贴图包（[Faithful License v3](server/Spigot/src/main/resources/inventory/faithful32x/LICENSE.txt)）。该资源由 Nukkit 模块在构建时打包进产物，源文件仍放在 `server/Spigot` 目录以避免重复存放。
 
 这意味着你可以自由使用、修改和分发本软件，但：
 - 修改后的版本必须以相同许可证发布

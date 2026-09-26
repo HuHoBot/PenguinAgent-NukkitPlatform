@@ -66,7 +66,7 @@ class HuHoBotNukkit : PluginBase(), HuHoBot {
 
         server.pluginManager.registerEvents(PlayerEvents(this), this)
         initializeRuntime()
-        log_info("HuHoBotPenguin Nukkit 已加载（平台：Nukkit-MOT，服务端版本：${server.version}）")
+        log_info("HuHoBotPenguin-NukkitPlatform 已加载（平台：Nukkit-MOT，服务端版本：${server.version}）")
     }
 
     override fun onDisable() {

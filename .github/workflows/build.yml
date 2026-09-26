@@ -22,24 +22,17 @@ jobs:
           git submodule status --recursive
           test -f deps/qqpd-bot-java/pom.xml
 
-      - name: Set up JDK 8
+      - name: Set up JDK 8 (common-Bot toolchain)
         uses: actions/setup-java@v5
         with:
           java-version: '8'
           distribution: 'temurin'
           cache: 'gradle'
 
-      - name: Set up JDK 17
+      - name: Set up JDK 17 (server-Nukkit toolchain)
         uses: actions/setup-java@v5
         with:
           java-version: '17'
-          distribution: 'temurin'
-          cache: 'gradle'
-
-      - name: Set up JDK 21
-        uses: actions/setup-java@v5
-        with:
-          java-version: '21'
           distribution: 'temurin'
           cache: 'gradle'
 
@@ -59,7 +52,7 @@ jobs:
         with:
           name: release-artifacts
           path: |
-            build/gather-jar/HuHoBot-*.jar
+            build/gather-jar/HuHoBot-Penguin_Nukkit-*.jar
           retention-days: 1  # 仅保留1天临时文件
 
   release:
@@ -135,7 +128,7 @@ jobs:
         uses: softprops/action-gh-release@v1  # 改用更可靠的 Action
         with:
           tag_name: ${{ steps.changelog.outputs.tag_name }}
-          name: HuHoBot ${{ steps.changelog.outputs.tag_name }}
+          name: HuHoBotPenguin-NukkitPlatform ${{ steps.changelog.outputs.tag_name }}
           body: |
             ${{ steps.changelog.outputs.body }}
 
@@ -143,4 +136,4 @@ jobs:
             - 构建时间: ${{ steps.get-time.outputs.TIME }}
             - 提交哈希: [${{ github.sha }}](${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }})
           files: |
-            artifacts/HuHoBot-*.jar
+            artifacts/HuHoBot-Penguin_Nukkit-*.jar

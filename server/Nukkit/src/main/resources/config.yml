@@ -76,7 +76,7 @@ binding:
 inventory:
   render:
     custom-background:
-      # 开启后，从 plugins/HuHoBotPenguin/inventory/backgrounds/ 读取本地 PNG。
+      # 开启后，从 plugins/HuHoBotPenguin-NukkitPlatform/inventory/backgrounds/ 读取本地 PNG。
       enabled: false
       inventory-file: "inventory.png"
       # 留空时末影箱复用 inventory-file。

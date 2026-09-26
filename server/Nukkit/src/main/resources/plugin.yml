@@ -1,4 +1,4 @@
-name: HuHoBotPenguin
+name: HuHoBotPenguin-NukkitPlatform
 main: cn.huohuas001.huhobotPenguin.nukkit.HuHoBotNukkit
 version: '@version@'
 api: ["1.0.0"]
