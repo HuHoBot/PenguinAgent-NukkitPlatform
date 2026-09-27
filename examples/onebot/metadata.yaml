@@ -1,0 +1,5 @@
+name: onebot
+version: 1.0.0
+author: HuHoBot
+description: OneBot v11 正向 WebSocket，把一个 QQ 群和游戏聊天接起来
+entry: main.lua

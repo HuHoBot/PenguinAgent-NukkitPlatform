@@ -20,15 +20,23 @@ dependencies {
     implementation("com.google.zxing:core:3.5.3")
     implementation("com.google.zxing:javase:3.5.3")
     implementation("org.bstats:bstats-bukkit:3.2.1")
-    compileOnly("org.spigotmc:spigot-api:1.16.5-R0.1-SNAPSHOT")
+    compileOnly("org.spigotmc:spigot-api:1.20.4-R0.1-SNAPSHOT")
     compileOnly("org.apache.logging.log4j:log4j-api:2.17.1")
     compileOnly("org.apache.logging.log4j:log4j-core:2.17.1")
     implementation("org.jetbrains.kotlin:kotlin-stdlib-jdk8")
     implementation("org.bstats:bstats-bukkit:3.2.1")
+
+    // 脚本扩展引擎。
+    // LUA：LuaJ，打进主 jar。
+    // JS：GraalJS 解压后约 37 MB，不在主包里。放在 :addon-GraalJs，运行时从
+    //     plugins/HuHoBotPenguin/engines/ 加载。主模块对它没有任何编译期引用。
+    // PY：GraalPy 解压后约 180 MB，同样不在主包里，放在 :addon-GraalPy，
+    //     运行时从同一个 engines/ 目录加载。
+    implementation("org.luaj:luaj-jse:3.0.1")
 }
 
 kotlin {
-    jvmToolchain(8)
+    jvmToolchain(17)
 }
 
 tasks {
@@ -79,6 +87,11 @@ tasks {
         archiveFileName.set("HuHoBot-Penguin_Spigot-${project.version}.jar")
         finalizedBy(gatherJar)
         relocate("org.bstats", "${project.group}.bstats")
+        mergeServiceFiles()
+        exclude(
+            "META-INF/*.SF", "META-INF/*.DSA", "META-INF/*.RSA",
+            "module-info.class", "**/module-info.class", "META-INF/versions/**"
+        )
     }
 
     processResources {

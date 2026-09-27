@@ -24,6 +24,8 @@ class HuHoBotCommand(private val plugin: HuHoBotNukkit) {
 
             "password" -> handlePassword(sender, args)
 
+            "scripts" -> handleScripts(sender, args)
+
             "webui" -> sender.sendMessage(
                 "WebUI 地址: http://127.0.0.1:${plugin.getWebUiPort()}\n" +
                     "WebUI 密码: ${currentPasswordHint()}"
@@ -48,6 +50,20 @@ class HuHoBotCommand(private val plugin: HuHoBotNukkit) {
         }
     }
 
+    /** `/huhobot scripts reload [插件名]`：重载 addons/ 下的目录插件。不带名字时全部重载。 */
+    private fun handleScripts(sender: CommandSender, args: Array<String>) {
+        if (!args.getOrNull(1).equals("reload", ignoreCase = true)) {
+            sender.sendMessage("用法: /huhobot scripts reload [插件名]")
+            return
+        }
+        val loader = plugin.getScriptLoader()
+        if (loader == null) {
+            sender.sendMessage("${TextFormat.RED}脚本加载器未初始化")
+            return
+        }
+        sender.sendMessage(loader.reload(args.getOrNull(2)))
+    }
+
     /** 密码文件不存在时返回「启动时自动生成」，否则提示可用命令修改。 */
     private fun currentPasswordHint(): String =
         if (WebUiPassword.isConfigured()) "已设置（可用 /huhobot password 修改）" else "首次启动时自动生成"
@@ -57,6 +73,7 @@ class HuHoBotCommand(private val plugin: HuHoBotNukkit) {
         sender.sendMessage("/huhobot info - 查看适配器信息")
         sender.sendMessage("/huhobot password <新密码> - 修改 WebUI 登录密码")
         sender.sendMessage("/huhobot webui - 查看 WebUI 地址")
+        sender.sendMessage("/huhobot scripts reload [插件名] - 重载 addons/ 下的目录插件")
         sender.sendMessage("/at <昵称> <消息> - 向 QQ 群发送 @消息")
         sender.sendMessage("/qqbind <验证码> - 绑定 QQ 账号")
         sender.sendMessage("/send <消息> - 向 QQ 群发送消息")

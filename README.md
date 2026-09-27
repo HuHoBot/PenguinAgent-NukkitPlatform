@@ -36,9 +36,10 @@
 
 | 平台 | 状态 | JDK 要求 | 产物 |
 |------|------|----------|------|
-| **Nukkit-MOT**（Bedrock） | 当前唯一构建目标 | JDK 17+ | `HuHoBot-Penguin_Nukkit-<版本>.jar` |
+| **Nukkit-MOT**（Bedrock） | 默认构建目标 | JDK 17+ | `HuHoBot-Penguin_Nukkit-<版本>.jar` |
+| **Spigot / Paper** | 已纳入构建 | JDK 17+ | `HuHoBot-Penguin_Spigot-<版本>.jar` |
 
-本仓库的 `./gradlew build` **只构建 Nukkit**。Spigot / Paper、PMMP、Velocity、BungeeCord、Allay 不在本分支的构建范围内。
+本仓库的 `./gradlew build` 构建 **Nukkit 与 Spigot**。PMMP、Velocity、BungeeCord、Allay 不在本分支的构建范围内。
 
 > Nukkit-MOT 适配版本维护在独立仓库 [PenguinAgent-NukkitPlatform](https://github.com/HuHoBot/PenguinAgent-NukkitPlatform)，不由本仓库维护，功能与 issue 请前往该仓库反馈。
 
@@ -487,7 +488,13 @@ PenguinAgent-NukkitPlatform/
 ls build/gather-jar/
 ```
 
-`settings.gradle.kts` 没有纳入 Spigot、Allay、Proxy，因此 `./gradlew build` 不会编译这些模块。
+`settings.gradle.kts` 纳入了 Nukkit 与 Spigot。Allay、Proxy 仍不参与构建。
+
+只打 Spigot 产物：
+
+```bash
+./gradlew :server-Spigot:shadowJar
+```
 
 ### 模块说明
 
@@ -495,8 +502,151 @@ ls build/gather-jar/
 |------|------|
 | `common-Bot` | 平台无关核心：QQ 客户端、群消息分发、指令、AI Agent、WebUI |
 | `server-AdapterCommon` | 服务端适配公共层：YAML 配置读写（含保留注释的定点写入） |
-| `server-Nukkit` | Nukkit-MOT 平台适配（本仓库唯一构建目标） |
+| `server-Nukkit` | Nukkit-MOT 平台适配 |
+| `server-Spigot` | Spigot / Paper 平台适配，含 JS / Python / Lua 脚本扩展 |
 | `addon-SexPhoto` | 可选扩展：色图指令（调用外部图库 API）。**不进主插件产物**，需单独构建 |
+| `addon-GraalJs` | GraalJS 引擎，**Nukkit 与 Spigot 共用**。不进主插件产物，放到对应插件的 `engines/` |
+| `addon-GraalPy` | GraalPy（Python 3）引擎，**Nukkit 与 Spigot 共用**。不进主插件产物，放到对应插件的 `engines/` |
+
+---
+
+## Nukkit 脚本扩展（目录插件）
+
+Nukkit 适配器内置了脚本扩展。一个插件是 `addons/` 下的一个目录，**不会扫描服务器的 `plugins/`**，
+根目录上直接放的 `.lua` / `.js` / `.py` 也不再加载。
+Lua 打在主 jar 里；GraalJS 与 GraalPy 拆成独立引擎包，不放也能启动：
+
+| 入口 | 引擎 | 来源 |
+|------|------|------|
+| `main.lua` | Lua 5.4（LuaJava） | 主 jar。约定来自 [NuclearScripting](https://www.minebbs.com/resources/nuclearscripting-lua-nukkit.7780/)：`on<事件名>` 即监听 |
+| `main.js` | GraalJS | **独立 jar**。与 [AXDA-ScriptEngine](https://github.com/Ruokwok/AXDA-ScriptEngine)（MIT）同款引擎，不进主包 |
+| `main.py` | GraalPy（Python 3） | **独立 jar**，不进主包 |
+
+```
+plugins/HuHoBotPenguin-NukkitPlatform/addons/hello/
+├── metadata.yaml          name / version / author / description / entry
+├── _conf_schema.json      配置声明，实际值写到 addons/config/hello.json
+└── main.lua               或 main.py / main.js
+```
+
+```
+/huhobot scripts reload
+/huhobot scripts reload hello
+```
+
+每个目录按 `metadata.yaml` 登记为一个 HuHoBot addon。三种语言都注入 `config`、`kv`、`DATA_DIR`：
+JS 还有 `mc` / `server` / `plugin`，Lua 还有 `plugin` / `server` / `logger` 并按 NuclearScripting 的规则绑定事件，
+Python 还有 `api` / `server` / `plugin`。JS 不是 AXDA 的整套 LSE API。
+
+`requirements.txt` 只做预检，不自动安装。配置里写 `"_enabled": false` 就跳过这个插件。
+
+JS 与 Python 引擎要单独构建，不放也能启动，只是对应脚本加载失败：
+
+```bash
+./gradlew :addon-GraalJs:shadowJar :addon-GraalPy:shadowJar
+# 产物：addon/GraalJs/build/libs/HuHoBot-Engine-GraalJs-<版本>.jar
+#       addon/GraalPy/build/libs/HuHoBot-Engine-GraalPy-<版本>.jar
+# 放到：plugins/HuHoBotPenguin-NukkitPlatform/engines/
+```
+
+```javascript
+// addons/hello/main.js — 需要先把 GraalJS 引擎 jar 放到 engines/
+mc.registerBotCommand("问好", "say {params}");
+mc.listen("PlayerJoinEvent", function (event) {
+    mc.tell(event.getPlayer(), "欢迎");
+});
+```
+
+```lua
+-- addons/hello/main.lua — Lua 5.4。函数名 on + 去掉末尾 Event 就是监听
+function onEnable(instance)
+    botCommands:register("问好", "say {params}")
+end
+
+function onPlayerJoin(event)
+    local player = event:getPlayer()
+    player:sendMessage("欢迎, " .. player:getName())
+end
+```
+
+```python
+# addons/hello/main.py — Python 3（GraalPy）。需要先把引擎 jar 放到 engines/
+def on_join(event):
+    api.tell(event.getPlayer(), "欢迎")
+
+def on_enable():
+    api.register_bot_command("问好", "say {params}")
+    api.register_event("PlayerJoinEvent", on_join)
+```
+
+`registerBotCommand` / `register_bot_command` 注册的是 QQ 群自定义命令，第二参是服务器命令模板。
+脚本重载时，它注册的 QQ 命令、Nukkit 事件、动态命令和定时任务会一起卸掉。
+
+---
+
+## Spigot 脚本扩展（JS / Python / Lua）
+
+Spigot 适配器支持三种脚本，把脚本丢进插件数据目录即可，不必再单独装一个插件。
+Lua 打在主 jar 里；GraalJS（约 37 MB）与 GraalPy（约 180 MB）拆成独立引擎包，不放也能启动：
+
+| 语言 | 引擎 | 放在哪 |
+|------|------|--------|
+| `.lua` | LuaJ | 主 jar 内，与 [BirdLibraryApi](https://github.com/prach1121/birdlibraryapi)（Apache-2.0）相同 |
+| `.js` | GraalJS | **独立 jar**，不进主包。接线方式与 BirdLibraryApi 相同 |
+| `.py` | GraalPy（Python 3） | **独立 jar**，不进主包 |
+
+JS 与 Python 引擎要单独构建，放进插件数据目录，不放也能启动，只是对应脚本加载失败：
+
+```bash
+./gradlew :addon-GraalJs:shadowJar :addon-GraalPy:shadowJar
+# 产物：addon/GraalJs/build/libs/HuHoBot-Engine-GraalJs-<版本>.jar
+#       addon/GraalPy/build/libs/HuHoBot-Engine-GraalPy-<版本>.jar
+# 放到：plugins/HuHoBotPenguin/engines/
+```
+
+```
+plugins/HuHoBotPenguin/addons/hello/
+├── metadata.yaml
+├── _conf_schema.json
+└── main.js            # 或 main.lua / main.py
+```
+
+启动时自动加载。重载按目录名：
+
+```
+/huhobot scripts reload            # 全部重载
+/huhobot scripts reload hello      # 只重载 addons/hello/
+```
+
+每个目录按 `metadata.yaml` 登记为一个 HuHoBot addon，并注入全局对象 `Bird`、`Bukkit`、`server`、`plugin`、`config`、`kv`、`DATA_DIR`。
+脚本里可以继续调用 HuHoBot 的扩展 API：
+
+```javascript
+// addons/hello/main.js — 需要先把 GraalJS 引擎 jar 放到 plugins/HuHoBotPenguin/engines/
+Bird.registerBotCommand(Bird.addonName(), "问好", "say {params}");
+Bird.onEvent("org.bukkit.event.player.PlayerJoinEvent", function (event) {
+    Bird.tell(event.getPlayer(), "&a欢迎");
+});
+```
+
+```python
+# addons/hello/main.py — Python 3（GraalPy）。需要先把引擎 jar 放到 plugins/HuHoBotPenguin/engines/
+def on_join(event):
+    Bird.tell(event.getPlayer(), "&a欢迎")
+
+Bird.registerBotCommand(Bird.addonName(), "问好", "say {params}")
+Bird.onEvent("org.bukkit.event.player.PlayerJoinEvent", on_join)
+```
+
+```lua
+-- addons/hello/main.lua
+Bird:registerBotCommand(Bird:addonName(), "问好", "say {params}")
+```
+
+`Bird.registerBotCommand(addonName, key, command)` 注册的是 QQ 群自定义命令，`command` 是服务器命令模板，占位符与配置里的自定义命令相同。
+脚本重载时，它自己注册的 QQ 命令、Bukkit 事件和动态命令会一起卸掉。
+
+脚本数据写在 `addons/data/<脚本名>.properties`，`Bird.saveFile` / `readFile` 限制在 `addons/files/<脚本名>/` 内。
 
 ---
 

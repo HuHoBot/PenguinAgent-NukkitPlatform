@@ -26,6 +26,7 @@ class HuHoBotCommand(private val plugin: HuHoBotSpigot) : TabExecutor {
             )
 
             "password" -> handlePassword(sender, args)
+            "scripts" -> handleScripts(sender, args)
             "webui" -> {
                 val port = plugin.getWebUiPort()
                 sender.sendMessage(
@@ -53,6 +54,44 @@ class HuHoBotCommand(private val plugin: HuHoBotSpigot) : TabExecutor {
         }
     }
 
+    /**
+     * `/huhobot scripts reload [插件名]`
+     * 重载 `plugins/HuHoBotPenguin/addons` 下的目录插件。
+     * 不带名字时全部重载；带名字时只重载那个目录（大小写不敏感）。
+     */
+    private fun handleScripts(sender: CommandSender, args: Array<out String>) {
+        val action = args.getOrNull(1)?.lowercase()
+        if (action != "reload") {
+            sender.sendMessage("用法: /huhobot scripts reload [插件名]")
+            return
+        }
+        val loader = plugin.getScriptAddonLoader()
+        if (loader == null) {
+            sender.sendMessage("${ChatColor.RED}脚本加载器未初始化")
+            return
+        }
+        val start = System.currentTimeMillis()
+        val file = args.getOrNull(2)
+        if (file != null) {
+            sender.sendMessage(loader.reloadOne(file).formatted() + " ${ChatColor.GRAY}(${System.currentTimeMillis() - start}ms)")
+            return
+        }
+        val results = loader.reloadAll()
+        val took = System.currentTimeMillis() - start
+        if (results.isEmpty()) {
+            sender.sendMessage("${ChatColor.YELLOW}${loader.getScriptsFolder().path} 中没有 .js / .py / .lua 脚本")
+            return
+        }
+        val okCount = results.count { it.success() }
+        val failCount = results.size - okCount
+        if (failCount == 0) {
+            sender.sendMessage("${ChatColor.GREEN}脚本重载完成: 全部 $okCount 个成功 ${ChatColor.GRAY}(${took}ms)")
+        } else {
+            sender.sendMessage("${ChatColor.YELLOW}脚本重载完成: ${ChatColor.GREEN}$okCount 成功 ${ChatColor.GRAY}/ ${ChatColor.RED}$failCount 失败 ${ChatColor.GRAY}(${took}ms)")
+            results.filterNot { it.success() }.forEach { sender.sendMessage("  ${it.formatted()}") }
+        }
+    }
+
     /** 密码文件不存在时返回"启动时自动生成"，否则提示查看配置文件。 */
     private fun currentPasswordHint(): String {
         return if (WebUiPassword.isConfigured()) "已设置（可用 /hb password 修改）" else "首次启动时自动生成"
@@ -64,9 +103,18 @@ class HuHoBotCommand(private val plugin: HuHoBotSpigot) : TabExecutor {
         _alias: String,
         args: Array<out String>
     ): List<String> {
-        if (args.size != 1) return emptyList()
         val prefix = args[0].lowercase()
-        return SUBCOMMANDS.filter { it.startsWith(prefix) }
+        if (args.size == 1) return SUBCOMMANDS.filter { it.startsWith(prefix) }
+        if (args.size == 2 && prefix == "scripts") {
+            return listOf("reload").filter { it.startsWith(args[1].lowercase()) }
+        }
+        if (args.size == 3 && prefix == "scripts" && args[1].equals("reload", ignoreCase = true)) {
+            val partial = args[2].lowercase()
+            return plugin.getScriptAddonLoader()?.listScriptFileNames()
+                ?.filter { it.lowercase().startsWith(partial) }
+                .orEmpty()
+        }
+        return emptyList()
     }
 
     private fun sendHelp(sender: CommandSender, label: String) {
@@ -74,10 +122,11 @@ class HuHoBotCommand(private val plugin: HuHoBotSpigot) : TabExecutor {
         sender.sendMessage("/$label info - 查看适配器信息")
         sender.sendMessage("/$label password <新密码> - 修改 WebUI 登录密码")
         sender.sendMessage("/$label webui - 查看 WebUI 地址")
+        sender.sendMessage("/$label scripts reload [插件名] - 重载 addons/ 下的目录插件")
         sender.sendMessage("/send <消息> - 向 QQ 群发送消息")
     }
 
     private companion object {
-        val SUBCOMMANDS = listOf("reload", "info", "password", "webui", "help")
+        val SUBCOMMANDS = listOf("reload", "info", "password", "webui", "scripts", "help")
     }
 }

@@ -8,7 +8,7 @@ softdepend: [PlaceholderAPI]
 commands:
   huhobot:
     description: HuHoBot control command
-    usage: "/huhobot reload|info|send|password|webui"
+    usage: "/huhobot reload|info|password|webui|scripts"
     aliases: [hb]
     permission: huhobot.command
   at:
@@ -23,7 +23,6 @@ commands:
     description: Send a message to QQ group
     usage: "/send <message>"
     permission: huhobot.send
-
 permissions:
   huhobot.command:
     description: Allows use of HuHoBot control commands

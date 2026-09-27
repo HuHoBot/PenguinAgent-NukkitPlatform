@@ -33,6 +33,7 @@ import cn.huohuas001.huhobotPenguin.nukkit.events.PlayerEvents
 import cn.huohuas001.huhobotPenguin.nukkit.inventory.OfflineInventorySnapshots
 import cn.huohuas001.huhobotPenguin.nukkit.inventory.InventoryRenderer
 import cn.huohuas001.huhobotPenguin.nukkit.integration.PlaceholderApiSupport
+import cn.huohuas001.huhobotPenguin.nukkit.scripting.NukkitScriptLoader
 import cn.huohuas001.huhobotPenguin.nukkit.manager.ConfigMigrator
 import cn.huohuas001.huhobotPenguin.nukkit.manager.QrLoginManager
 import cn.nukkit.command.Command
@@ -62,6 +63,9 @@ class HuHoBotNukkit : PluginBase(), HuHoBot {
     private lateinit var config: YamlConfig
     private lateinit var pluginLogger: PluginLogger
     private lateinit var offlineInventorySnapshots: OfflineInventorySnapshots
+    private var scriptLoader: NukkitScriptLoader? = null
+
+    fun getScriptLoader(): NukkitScriptLoader? = scriptLoader
 
     private val huHoBotCommand by lazy { HuHoBotCommand(this) }
     private val atCommand by lazy { AtCommand(this) }
@@ -80,12 +84,15 @@ class HuHoBotNukkit : PluginBase(), HuHoBot {
         server.pluginManager.registerEvents(PlayerEvents(this), this)
         PlaceholderApiSupport.setup(this)
         preloadAddonApiClasses()
+        loadScriptAddons()
         initializeRuntime()
         log_info("HuHoBotPenguin-NukkitPlatform 已加载（平台：Nukkit-MOT，服务端版本：${server.version}）")
     }
 
     override fun onDisable() {
         try {
+            scriptLoader?.unloadAll()
+            scriptLoader = null
             if (::offlineInventorySnapshots.isInitialized) offlineInventorySnapshots.close()
         } finally {
             shutdownRuntime()
@@ -211,6 +218,7 @@ class HuHoBotNukkit : PluginBase(), HuHoBot {
      */
     override fun onBotCommand(event: GroupMessageEvent, messageSequence: Int): Boolean {
         val msgPack = event.toMsgPack(messageSequence).withCommand(event.rawMessage.content.orEmpty())
+        log_info("[诊断] 自定义命令钩子触发: key=${msgPack.commandKey} args=${msgPack.commandArguments}")
         val botEvent = OnBotCommand(
             msgPack = msgPack,
             replyTextAction = { text ->
@@ -224,6 +232,7 @@ class HuHoBotNukkit : PluginBase(), HuHoBot {
             replyImageAction = { text, imageUrl -> QClient.replyWithImg(event, text, imageUrl) }
         )
         callSyncEvent(botEvent)
+        log_info("[诊断] OnBotCommand 事件派发完毕，被取消=${botEvent.isCancelled}")
         return botEvent.isCancelled
     }
 
@@ -590,6 +599,23 @@ class HuHoBotNukkit : PluginBase(), HuHoBot {
     // ---------------------------------------------------------------- 扩展（addon）API
 
     /**
+     * 加载 `plugins/HuHoBotPenguin-NukkitPlatform/addons` 下的目录插件。
+     * `.lua` 用 Lua 5.4（与 NuclearScripting 同一约定：`on<事件名>` 即监听），打在主 jar 里。
+     * `.js` 用 GraalJS、`.py` 用 GraalPy（Python 3），这两个引擎都在独立 jar 里，
+     * 需要放到 `engines/` 目录。只扫本插件自己的目录，不会碰服务器 `plugins/` 里别人的脚本。
+     */
+    private fun loadScriptAddons() {
+        val loader = NukkitScriptLoader(this)
+        scriptLoader = loader
+        try {
+            val loaded = loader.loadAll()
+            log_info("脚本扩展已加载 $loaded 个，目录 ${loader.folder().path}")
+        } catch (error: Throwable) {
+            log_error("加载脚本扩展时出现异常，插件继续运行: ${error.message}")
+        }
+    }
+
+    /**
      * 预热扩展 API 涉及的类。
      *
      * Nukkit 给每个插件一个独立的 PluginClassLoader，其 `findClass` 的查找顺序是
@@ -607,6 +633,9 @@ class HuHoBotNukkit : PluginBase(), HuHoBot {
             }
         }
     }
+
+    /** 向配置中的所有 QQ 群发送普通文本。供脚本扩展调用。 */
+    fun sendBotText(text: String) = sendText(text)
 
     /**
      * 注册一个扩展。

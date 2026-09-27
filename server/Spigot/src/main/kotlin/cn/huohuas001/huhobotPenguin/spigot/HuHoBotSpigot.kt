@@ -26,6 +26,7 @@ import cn.huohuas001.huhobotPenguin.spigot.integration.PlaceholderApiSupport
 import cn.huohuas001.huhobotPenguin.spigot.inventory.InventoryRenderer
 import cn.huohuas001.huhobotPenguin.spigot.inventory.InventorySnapshot
 import cn.huohuas001.huhobotPenguin.spigot.inventory.OfflineInventorySnapshots
+import cn.huohuas001.huhobotPenguin.spigot.scripting.ScriptAddonLoader
 import cn.huohuas001.huhobotPenguin.adapter.api.MsgPack
 import cn.huohuas001.huhobotPenguin.adapter.api.toMsgPack
 import cn.huohuas001.huhobotPenguin.adapter.api.withCommand
@@ -50,6 +51,9 @@ class HuHoBotSpigot : JavaPlugin(), HuHoBot {
 
     private lateinit var configManager: ConfigManager
     private lateinit var offlineInventorySnapshots: OfflineInventorySnapshots
+    private var scriptAddonLoader: ScriptAddonLoader? = null
+
+    fun getScriptAddonLoader(): ScriptAddonLoader? = scriptAddonLoader
 
     override fun onEnable() {
         instance = this
@@ -80,11 +84,38 @@ class HuHoBotSpigot : JavaPlugin(), HuHoBot {
             setExecutor(sendCommand)
             tabCompleter = sendCommand
         } ?: log_error("无法注册 /send 命令，请检查 plugin.yml")
+        loadScriptAddons()
         log_info("HuHoBot Penguin 已加载")
         BStatsReporter.start(this)
     }
 
+    /**
+     * 加载 plugins/HuHoBotPenguin/addons 下的 .js / .py / .lua 脚本扩展。
+     * Lua 用 LuaJ，打在主 jar 里。JS 用 GraalJS、Python 用 GraalPy，但这两个引擎都在独立 jar 里，
+     * 需要放到 plugins/HuHoBotPenguin/engines/，否则对应脚本加载失败、插件照常运行。
+     */
+    private fun loadScriptAddons() {
+        val loader = ScriptAddonLoader(this)
+        scriptAddonLoader = loader
+        try {
+            val results = loader.loadAll()
+            val failed = results.count { !it.success() }
+            if (failed > 0) {
+                log_warning("脚本扩展加载失败 $failed/${results.size} 个，坏脚本已跳过，插件继续运行")
+            }
+            log_info("脚本扩展已加载 ${loader.getLoadedCount()} 个，目录 ${loader.getScriptsFolder().path}")
+        } catch (error: Throwable) {
+            log_error("加载脚本扩展时出现异常，插件继续运行: ${error.message}")
+        }
+    }
+
     override fun onDisable() {
+        try {
+            scriptAddonLoader?.unloadAll()
+        } catch (error: Throwable) {
+            log_error("卸载脚本扩展失败: ${error.message}")
+        }
+        scriptAddonLoader = null
         if (::offlineInventorySnapshots.isInitialized) offlineInventorySnapshots.close()
         instance = null
         shutdownRuntime()

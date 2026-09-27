@@ -22,9 +22,10 @@ project(":common-Bot").projectDir = file("common/Bot")
 include(":server-AdapterCommon")
 project(":server-AdapterCommon").projectDir = file("server/AdapterCommon")
 
-// 本仓库只构建 Nukkit-MOT 平台。Spigot / Allay / Proxy 源码仍保留在仓库中，但不参与构建。
-// include(":server-Spigot")
-// project(":server-Spigot").projectDir = file("server/Spigot")
+include(":server-Spigot")
+project(":server-Spigot").projectDir = file("server/Spigot")
+
+// Allay / Proxy 源码仍保留在仓库中，但不参与构建。
 //
 // include(":server-Allay")
 // project(":server-Allay").projectDir = file("server/Allay")
@@ -35,9 +36,17 @@ project(":server-AdapterCommon").projectDir = file("server/AdapterCommon")
 include(":server-Nukkit")
 project(":server-Nukkit").projectDir = file("server/Nukkit")
 
-// 可选扩展（addon）：各自是独立的 Nukkit 插件，运行时通过 HuHoBot 的扩展 API 挂接。
-// 不进主插件产物，需要单独构建：./gradlew :addon-SexPhoto:build
+// 可选扩展（addon）：不进主插件产物，需要单独构建后放进对应插件的 engines/。
+//   ./gradlew :addon-SexPhoto:build      Nukkit 色图扩展
+//   ./gradlew :addon-GraalJs:shadowJar   GraalJS 引擎，Nukkit 与 Spigot 共用
+//   ./gradlew :addon-GraalPy:shadowJar   GraalPy 引擎，Nukkit 与 Spigot 共用
 include(":addon-SexPhoto")
 project(":addon-SexPhoto").projectDir = file("addon/SexPhoto")
+
+include(":addon-GraalJs")
+project(":addon-GraalJs").projectDir = file("addon/GraalJs")
+
+include(":addon-GraalPy")
+project(":addon-GraalPy").projectDir = file("addon/GraalPy")
 
 rootProject.name = "HuHoBotPenguin-NukkitPlatform"
