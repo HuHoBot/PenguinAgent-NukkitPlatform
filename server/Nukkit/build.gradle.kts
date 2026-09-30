@@ -80,11 +80,22 @@ tasks.processResources {
     }
 }
 
-val gatherJar by tasks.registering(Copy::class) {
+// ⚠️ 必须用 Sync 而不是 Copy。
+// Copy 只往目标目录里合并，不会删掉上一次构建留下的文件；而版本号一升，产物文件名就变了
+// （HuHoBot-Penguin_Nukkit-<版本>.jar），于是 build/gather-jar/ 会同时留着新旧两个 jar。
+// 自动发版流水线跑的是不带 clean 的 `./gradlew build`，并按 `HuHoBot-*.jar` 通配取产物，
+// 会把错版本的 jar 一起传上去。Sync 会先清掉目标目录里不在源里的文件，从根上避免。
+val gatherJar by tasks.registering(Sync::class) {
     group = "build"
-    description = "Collects the packaged Nukkit plugin into build/gather-jar."
+    description = "Collects the packaged Nukkit plugin into build/gather-jar (removing stale jars)."
     from(tasks.shadowJar.flatMap { it.archiveFile })
     into(rootProject.layout.buildDirectory.dir("gather-jar"))
+
+    // 这个任务的全部意义就是「让产物目录里只有当前版本的 jar」（文件名带版本号，
+    // 升级一次就换一个名字）。而 Gradle 只会比较它自己产出的那批文件，目标目录里
+    // 多出来的旧 jar 不被视为变化，任务会被判定 UP-TO-DATE 直接跳过 —— 光把 Copy
+    // 换成 Sync 是不够的，必须让它每次都真的跑。代价只是一次本地文件同步。
+    outputs.upToDateWhen { false }
 }
 
 tasks.shadowJar {
