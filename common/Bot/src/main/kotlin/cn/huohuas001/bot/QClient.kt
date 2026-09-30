@@ -12,6 +12,7 @@ import cn.huohuas001.bot.events.commands.RegisteredCommand
 import cn.huohuas001.bot.provider.BotShared
 import cn.huohuas001.bot.state.CommandRepositories
 import cn.huohuas001.bot.state.GroupDirectory
+import cn.huohuas001.bot.tools.Cancelable
 import cn.huohuas001.bot.tools.QqBotConsoleOutputFilter
 import com.alibaba.fastjson.JSON
 import io.github.kloping.qqbot.Starter
@@ -33,6 +34,8 @@ import java.util.concurrent.atomic.AtomicInteger
 object QClient {
     private const val KEYBOARD_RECALL_DELAY_SECONDS = 30L
     private const val GROUP_NAME_RETRY_MILLIS = 30_000L
+    private const val GROUP_PANELS_SYNC_RETRY_MILLIS = 1_000L
+    private const val GROUP_PANELS_SYNC_MAX_ATTEMPTS = 120
 
     private val groupNameAttempts = ConcurrentHashMap<String, Long>()
 
@@ -65,17 +68,6 @@ object QClient {
 
     private lateinit var starter: Starter
     private lateinit var groupMessageHandler: GroupMessageHandler
-
-    /**
-     * QQ 客户端是否已经**完全**启动完毕。
-     *
-     * 光判断 `::starter.isInitialized` 不够：`starter.run()` 返回前后 SDK 内部还有一段
-     * 初始化，期间 `start0` 仍是 null，此时同步指令面板会抛
-     * `Cannot invoke "Start0.getAccessToken()" because "start0" is null`。
-     * addon 在 onEnable 里注册命令正好落在这个窗口里。
-     */
-    @Volatile
-    private var clientReady = false
 
     /** 收到群消息时登记被动回复票据，供后续出站消息复用。 */
     fun rememberPassiveTicket(groupOpenId: String, messageId: String?) {
@@ -136,8 +128,39 @@ object QClient {
         return chain.joinToString("  ←  ") + (frame?.let { "\n    at $it" } ?: "")
     }
 
+    @Volatile
+    private var groupPanelsSyncPending = false
+
+    @Volatile
+    private var groupPanelsSyncRetry: Cancelable? = null
+
     /** 获取 QQ Bot Starter 实例（供 Agent 群管理 API 使用）。 */
     fun getStarter(): Starter? = if (::starter.isInitialized) starter else null
+
+    /** QQ 是否已完成鉴权：contextManager 只在鉴权成功后才会被赋值。 */
+    private fun isQqAuthenticated(): Boolean = try {
+        starter.APPLICATION.INSTANCE.contextManager != null
+    } catch (_: Throwable) {
+        false
+    }
+
+    /** 鉴权未完成时按秒重试面板同步，超过上限就放弃并告警。 */
+    private fun scheduleGroupPanelsSyncRetry() {
+        if (groupPanelsSyncRetry != null) return
+        var attempts = 0
+        groupPanelsSyncRetry = BotShared.getPlugin().submitTimer(GROUP_PANELS_SYNC_RETRY_MILLIS, GROUP_PANELS_SYNC_RETRY_MILLIS) {
+            if (!groupPanelsSyncPending) return@submitTimer
+            attempts++
+            if (isQqAuthenticated()) {
+                syncGroupPanels()
+            } else if (attempts >= GROUP_PANELS_SYNC_MAX_ATTEMPTS) {
+                groupPanelsSyncPending = false
+                groupPanelsSyncRetry?.cancel()
+                groupPanelsSyncRetry = null
+                BotShared.getPlugin().log_warning("面板同步: 等待 QQ 鉴权超时，已放弃本次同步")
+            }
+        }
+    }
 
     /**
      * 注册指令处理器,收到群消息后会自动分发
@@ -166,12 +189,21 @@ object QClient {
     }
 
     fun syncGroupPanels() {
-        if (!::starter.isInitialized || !::groupMessageHandler.isInitialized) return
-        if (!clientReady) {
-            // 客户端还没起完，这次同步必然失败；启动流程末尾会自己同步一次。
-            BotShared.getPlugin().log_debug("QQ 客户端尚未就绪，跳过本次指令面板同步")
+        if (!::starter.isInitialized || !::groupMessageHandler.isInitialized) {
+            groupPanelsSyncPending = true
             return
         }
+        // 脚本在启动早期就会登记 QQ 群命令，那时会顺带触发面板同步；但
+        // contextManager 只在 QQ 鉴权成功后才被赋值，提前访问必然 NPE。
+        // 这里先挂起，等鉴权完成再补同步。
+        if (!isQqAuthenticated()) {
+            groupPanelsSyncPending = true
+            scheduleGroupPanelsSyncRetry()
+            return
+        }
+        groupPanelsSyncPending = false
+        groupPanelsSyncRetry?.cancel()
+        groupPanelsSyncRetry = null
         val plugin = BotShared.getPlugin()
         val allCommands = groupMessageHandler.registeredCommands()
         val commandList = plugin.getCommandList()
@@ -208,7 +240,6 @@ object QClient {
 
         // 关闭旧连接（只关 WebSocket，不杀线程池）
         if (::starter.isInitialized) {
-            clientReady = false
             try {
                 starter.softClose()
             } catch (_: Exception) {}
@@ -223,7 +254,6 @@ object QClient {
             starter.registerListenerHost(AgentInteractionListener())
             LoggerImpl.INSTANCE.setLogLevel(1)
             logFilePattern?.let { LoggerImpl.INSTANCE.setOutFile(it) }
-            clientReady = true
             syncGroupPanels()
             // 加载本地昵称缓存
             NicknameManager.load()

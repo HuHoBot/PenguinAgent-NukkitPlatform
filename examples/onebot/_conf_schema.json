@@ -1,0 +1,47 @@
+{
+  "url": {
+    "type": "string",
+    "description": "正向 WebSocket 地址。路径各家不一样，对着机器人自己的配置抄。",
+    "default": "ws://127.0.0.1:3001"
+  },
+  "token": {
+    "type": "string",
+    "description": "访问令牌。没设就留空，会作为 Authorization: Bearer 发送。",
+    "default": ""
+  },
+  "groups": {
+    "type": "list",
+    "description": "要互通的群号。空列表表示接收所有群，但游戏聊天不会发出去。",
+    "default": [123456789]
+  },
+  "reconnect": {
+    "type": "bool",
+    "description": "断开后是否自动重连。",
+    "default": true
+  },
+  "reconnect_seconds": {
+    "type": "int",
+    "description": "重连间隔，单位秒。",
+    "default": 5
+  },
+  "game_to_qq": {
+    "type": "bool",
+    "description": "是否把游戏聊天发到群里。",
+    "default": true
+  },
+  "qq_to_game": {
+    "type": "bool",
+    "description": "是否把群消息广播进游戏。",
+    "default": true
+  },
+  "qq_prefix": {
+    "type": "string",
+    "description": "群消息进游戏时的前缀。",
+    "default": "[QQ] "
+  },
+  "game_prefix": {
+    "type": "string",
+    "description": "游戏聊天进群时的前缀。",
+    "default": "[MC] "
+  }
+}

@@ -29,6 +29,7 @@
 | **QQ 群管理** | AI Agent 集成禁言、入群审批、自动审批策略等群管理工具 |
 | **指令面板自动同步** | 启动时自动同步命令面板到 QQ 群（上限 20 条） |
 | **背包与末影箱查看** | `/我的背包`、`/我的末影箱` 查询唯一绑定账户；管理员可用 `/背包查看 <在线玩家名>`、`/末影箱查看 <在线玩家名>` |
+| **脚本扩展** | `addons/<名字>/` 目录插件，入口 `main.js` / `main.lua` / `main.py`，用 `Bird` 桥 |
 
 ---
 
@@ -496,9 +497,10 @@ ls build/gather-jar/
 | `common-Bot` | 平台无关核心：QQ 客户端、群消息分发、指令、AI Agent、WebUI |
 | `server-AdapterCommon` | 服务端适配公共层：YAML 配置读写（含保留注释的定点写入） |
 | `server-Nukkit` | Nukkit-MOT 平台适配（本仓库唯一构建目标） |
+| `addon-GraalJs` | 可选引擎包：JS 脚本引擎，两个平台共用。不进主插件产物 |
+| `addon-GraalPy` | 可选引擎包：Python 脚本引擎，两个平台共用。不进主插件产物 |
 
 ---
-
 ## 扩展（Addon）开发
 
 第三方 Nukkit 插件可以给 HuHoBot 增加 QQ 群指令，不需要改主插件。
@@ -572,7 +574,54 @@ class MyAddon : PluginBase(), Listener {
 
 ---
 
+## Spigot 脚本扩展（JS / Python / Lua）
+
+一个插件是 `addons/` 下的一个目录，不是单个文件。根上直接放的 `.js` / `.lua` / `.py` 不加载。
+Lua 打在主 jar 里；GraalJS（约 34 MB）与 GraalPy（约 125 MB）拆成两个引擎包，不放也能启动：
+
+| 入口 | 引擎 | 放在哪 |
+|------|------|--------|
+| `main.lua` | LuaJ | 主 jar 内 |
+| `main.js` | GraalJS | `engines/HuHoBot-Engine-GraalJs-<版本>.jar` |
+| `main.py` | GraalPy（Python 3） | `engines/HuHoBot-Engine-GraalPy-<版本>.jar` |
+
+```bash
+./gradlew :addon-GraalJs:shadowJar :addon-GraalPy:shadowJar
+# 放到 plugins/HuHoBotPenguin/engines/
+```
+
+```
+plugins/HuHoBotPenguin/addons/hello/
+├── metadata.yaml          name / version / author / description / entry
+├── _conf_schema.json      配置声明，实际值写到 addons/config/hello.json
+└── main.js                或 main.lua / main.py
+```
+
+```
+/huhobot scripts reload
+/huhobot scripts reload hello
+```
+
+三种语言都注入 `Bird`、`Bukkit`、`server`、`plugin`、`config`、`kv`、`DATA_DIR`。
+加载失败会撤掉已经登记的 addon 和它注册过的命令、监听器、定时任务。
+两个目录写成同一个 `name` 会被拒绝。`"_enabled": false` 跳过该插件（算「跳过」不算「失败」）。
+
+两个容易踩的点：
+
+- **Lua 侧列表下标从 1 开始。** 命令参数和 `Bird` 返回的 `List` / `Map` 都会转成真正的 Lua table，
+  所以是 `args[1]`、`#Bird:getDataKeys()`、`pairs(...)`，不是 0 起。JS 和 Python 保持各自的 0 起。
+- **引擎 jar 的文件名带版本。** 和主插件版本不一致时启动会告警，脚本可能以难懂的方式失败，
+  换同一次构建产出的 jar 即可。
+
+详细说明见 [`docs/spigot-script-addons.md`](docs/spigot-script-addons.md)，
+其中「[引擎桥 API](docs/spigot-script-addons.md#11-引擎桥-api)」一节记录了主插件与引擎 jar 之间的反射契约
+（改 `GraalJsBridge` / `GraalPyBridge` 的方法签名时必须同步改 `ScriptAddonLoader`）。
+
+脚本系统借鉴自 [birdlibraryapi](https://github.com/prach1121/birdlibraryapi)（Apache-2.0），详见[许可证](#许可证)一节。
+
+
 ## 版本历史
+
 
 ### v1.9.0（最新）
 
@@ -736,6 +785,13 @@ class MyAddon : PluginBase(), Listener {
 本项目采用 [GNU Affero General Public License v3.0](LICENSE) 许可证。
 
 ### 第三方资源
+
+**脚本扩展系统**（`addons/<名字>/main.js` / `main.lua` / `main.py` 与 `Bird` 桥）借鉴并移植自
+[birdlibraryapi](https://github.com/prach1121/birdlibraryapi)（Apache-2.0），原作者 prach1121。
+`BirdScriptApi` 由该项目的 `BirdAPI` 移植而来，并按 Spigot 1.16+（不用 Adventure API）与
+HuHoBot 附属插件注册做了适配；`ScriptAddonLoader`、`ScriptPackage`、`AddonManifest`、
+`ScriptLoadResult`、`LoadedScript` 等类同样参考了它的加载与脚本生命周期设计。
+源码文件头部保留了原始出处与许可证声明。
 
 背包查看功能使用 [Faithful 32x](https://faithfulpack.net/) 贴图包（[Faithful License v3](server/Spigot/src/main/resources/inventory/faithful32x/LICENSE.txt)）。该资源由 Nukkit 模块在构建时打包进产物，源文件仍放在 `server/Spigot` 目录以避免重复存放。
 

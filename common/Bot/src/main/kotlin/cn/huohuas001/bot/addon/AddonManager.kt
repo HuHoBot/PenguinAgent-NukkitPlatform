@@ -46,4 +46,14 @@ object AddonManager {
 
     /** 检查扩展是否已注册（支持 `name in AddonManager` 语法）。 */
     operator fun contains(name: String): Boolean = name in addons
+
+    /**
+     * 卸载一个扩展及其登记的命令归属。
+     * 自定义命令本身还在 [cn.huohuas001.bot.events.commands.CustomCommandRegistry]，
+     * 调用方要自己按 key 注销。
+     */
+    fun unregister(name: String) {
+        addons.remove(name)
+        addonCommands.remove(name)
+    }
 }

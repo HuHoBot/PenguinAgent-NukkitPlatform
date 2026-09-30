@@ -35,6 +35,17 @@ dependencies {
     // 首次启动扫码登录：控制台二维码渲染。
     implementation("com.google.zxing:core:3.5.3")
 
+    // 脚本扩展引擎。
+    // JS：与 AXDA-ScriptEngine 相同的 GraalJS（MIT，https://github.com/Ruokwok/AXDA-ScriptEngine）。
+    //     不在主包里。放在 :addon-GraalJs，与 Spigot 共用，运行时从 plugins/<本插件>/engines/ 加载。
+    // LUA：与 NuclearScripting 相同的 Lua 5.4（party.iroiro.luajava）。natives-desktop 是
+    //     带分类器的 jar，Gradle 不会当普通依赖传递，所以显式声明 runtimeOnly 再打进包。
+    // PY：不在主包里。GraalPy（Python 3）放在 :addon-GraalPy，与 Spigot 共用，运行时从 plugins/<本插件>/engines/ 加载。
+    val luajava = "4.1.0"
+    implementation("party.iroiro.luajava:luajava:$luajava")
+    implementation("party.iroiro.luajava:lua54:$luajava")
+    runtimeOnly("party.iroiro.luajava:lua54-platform:$luajava:natives-desktop")
+
     implementation(kotlin("stdlib"))
 }
 
@@ -92,6 +103,8 @@ tasks.shadowJar {
         exclude(dependency("org.yaml:snakeyaml:.*"))
         exclude(dependency("org.slf4j:slf4j-api:.*"))
     }
+
+    exclude("module-info.class", "**/module-info.class", "META-INF/versions/**")
 
     mergeServiceFiles()
     duplicatesStrategy = DuplicatesStrategy.EXCLUDE

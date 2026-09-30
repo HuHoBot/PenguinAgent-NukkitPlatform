@@ -35,6 +35,7 @@ import cn.huohuas001.huhobotPenguin.nukkit.inventory.InventoryRenderer
 import cn.huohuas001.huhobotPenguin.nukkit.integration.PlaceholderApiSupport
 import cn.huohuas001.huhobotPenguin.nukkit.manager.ConfigMigrator
 import cn.huohuas001.huhobotPenguin.nukkit.manager.QrLoginManager
+import cn.huohuas001.huhobotPenguin.nukkit.scripting.NukkitScriptLoader
 import cn.nukkit.command.Command
 import cn.nukkit.command.CommandSender
 import cn.nukkit.command.PluginIdentifiableCommand
@@ -63,6 +64,11 @@ class HuHoBotNukkit : PluginBase(), HuHoBot {
     private lateinit var pluginLogger: PluginLogger
     private lateinit var offlineInventorySnapshots: OfflineInventorySnapshots
 
+    private var scriptLoader: NukkitScriptLoader? = null
+
+    /** 脚本加载器，供 `/huhobot scripts reload` 与脚本自身取用。 */
+    fun getScriptLoader(): NukkitScriptLoader? = scriptLoader
+
     private val huHoBotCommand by lazy { HuHoBotCommand(this) }
     private val atCommand by lazy { AtCommand(this) }
     private val qqBindCommand by lazy { QqBindCommand(this) }
@@ -80,12 +86,15 @@ class HuHoBotNukkit : PluginBase(), HuHoBot {
         server.pluginManager.registerEvents(PlayerEvents(this), this)
         PlaceholderApiSupport.setup(this)
         preloadAddonApiClasses()
+        loadScriptAddons()
         initializeRuntime()
         log_info("HuHoBotPenguin-NukkitPlatform 已加载（平台：Nukkit-MOT，服务端版本：${server.version}）")
     }
 
     override fun onDisable() {
         try {
+            scriptLoader?.unloadAll()
+            scriptLoader = null
             if (::offlineInventorySnapshots.isInitialized) offlineInventorySnapshots.close()
         } finally {
             shutdownRuntime()
@@ -689,6 +698,40 @@ class HuHoBotNukkit : PluginBase(), HuHoBot {
         val removed = CustomCommandRegistry.unregister(key)
         if (removed) submitAsync { QClient.syncGroupPanels() }
         return removed
+    }
+
+    // ---------------------------------------------------------------- 脚本扩展
+
+    /**
+     * 加载 `plugins/HuHoBotPenguin-NukkitPlatform/addons` 下的目录插件。
+     * `.lua` 用 Lua 5.4（与 NuclearScripting 同一约定：`on<事件名>` 即监听），打在主 jar 里。
+     * `.js` 用 GraalJS、`.py` 用 GraalPy（Python 3），这两个引擎都在独立 jar 里，
+     * 需要放到 `engines/` 目录。只扫本插件自己的目录，不会碰服务器 `plugins/` 里别人的脚本。
+     */
+    private fun loadScriptAddons() {
+        val loader = NukkitScriptLoader(this)
+        scriptLoader = loader
+        try {
+            val loaded = loader.loadAll()
+            log_info("脚本扩展已加载 $loaded 个，目录 ${loader.folder().path}")
+        } catch (error: Throwable) {
+            // 脚本引擎的异常经常把真正原因藏在 cause 链里（PolyglotException 尤其如此），
+            // 只打 message 会得到一句没有信息量的「null」。
+            val chain = generateSequence(error) { it.cause }.take(6).joinToString("  <-  ") {
+                it.javaClass.name + (it.message?.let { m -> ": $m" } ?: "")
+            }
+            log_error("加载脚本扩展时出现异常，插件继续运行: $chain")
+        }
+    }
+
+    /** 向配置中的所有 QQ 群发送普通文本。供脚本扩展调用。 */
+    fun sendBotText(text: String) = sendText(text)
+
+    /** 卸载扩展登记。QQ 命令要另外调用 [unregisterBotCommand]。 */
+    fun unregisterAddon(name: String) {
+        if (name.isBlank() || name !in AddonManager) return
+        AddonManager.unregister(name)
+        log_info("已卸载扩展：$name")
     }
 
     // ---------------------------------------------------------------- 日志

@@ -36,3 +36,12 @@ include(":server-Nukkit")
 project(":server-Nukkit").projectDir = file("server/Nukkit")
 
 rootProject.name = "HuHoBotPenguin-NukkitPlatform"
+
+// 可选引擎包：不进主插件产物。构建后放到 plugins/HuHoBotPenguin/engines/。
+//   ./gradlew :addon-GraalJs:shadowJar   Spigot 的 GraalJS 引擎
+//   ./gradlew :addon-GraalPy:shadowJar   Spigot 的 GraalPy 引擎
+include(":addon-GraalJs")
+project(":addon-GraalJs").projectDir = file("addon/GraalJs")
+
+include(":addon-GraalPy")
+project(":addon-GraalPy").projectDir = file("addon/GraalPy")

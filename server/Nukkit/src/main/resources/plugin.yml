@@ -14,7 +14,7 @@ website: https://github.com/HuHoBot/PenguinAgent-NukkitPlatform
 commands:
   huhobot:
     description: HuHoBot control command
-    usage: "/huhobot reload|info|send|password|webui"
+    usage: "/huhobot reload|info|password|webui|scripts"
     aliases: [hb]
     permission: huhobot.command
   at:
