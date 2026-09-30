@@ -80,21 +80,30 @@ tasks.processResources {
     }
 }
 
-// ⚠️ 必须用 Sync 而不是 Copy。
-// Copy 只往目标目录里合并，不会删掉上一次构建留下的文件；而版本号一升，产物文件名就变了
-// （HuHoBot-Penguin_Nukkit-<版本>.jar），于是 build/gather-jar/ 会同时留着新旧两个 jar。
-// 自动发版流水线跑的是不带 clean 的 `./gradlew build`，并按 `HuHoBot-*.jar` 通配取产物，
-// 会把错版本的 jar 一起传上去。Sync 会先清掉目标目录里不在源里的文件，从根上避免。
+// build/gather-jar/ 是所有发布产物的汇集目录，发版流水线按 `HuHoBot-*.jar` 通配取产物。
+// :addon-GraalJs 和 :addon-GraalPy 也会往同一个目录放引擎包，每个模块各管自己那一族文件。
+//
+// ⚠️ 必须用 Sync 而不是 Copy：产物文件名带版本号，版本号一升文件名就变了，而 Copy 只往
+// 目标目录里合并、从不清理，于是新旧两个 jar 会同时留在那儿；流水线跑的又是不带 clean 的
+// `./gradlew build`，会把上一版的 jar 一起传上 Release。
 val gatherJar by tasks.registering(Sync::class) {
     group = "build"
     description = "Collects the packaged Nukkit plugin into build/gather-jar (removing stale jars)."
     from(tasks.shadowJar.flatMap { it.archiveFile })
     into(rootProject.layout.buildDirectory.dir("gather-jar"))
 
-    // 这个任务的全部意义就是「让产物目录里只有当前版本的 jar」（文件名带版本号，
-    // 升级一次就换一个名字）。而 Gradle 只会比较它自己产出的那批文件，目标目录里
-    // 多出来的旧 jar 不被视为变化，任务会被判定 UP-TO-DATE 直接跳过 —— 光把 Copy
-    // 换成 Sync 是不够的，必须让它每次都真的跑。代价只是一次本地文件同步。
+    // Sync 默认会删掉目标目录里「不是本次执行产出」的所有文件，而另外两个模块也往这里放
+    // 引擎包 —— 三个 Sync 指向同一个目录就会互相删对方的 jar，谁最后跑谁赢。preserve 用来
+    // 声明「这些不是我负责的文件，别动」。这里写成「保留所有 HuHoBot-*，除了本模块那一族」，
+    // 而不是逐个列举兄弟模块的产物名，是为了将来再加引擎模块时不必回头改这里。
+    preserve {
+        include("HuHoBot-*")
+        exclude("HuHoBot-Penguin_Nukkit-*.jar")
+    }
+
+    // 光换成 Sync 还不够：Gradle 的 up-to-date 检查只比对自己产出的文件，目标目录里多出来的
+    // 旧 jar 不算变化，实测任务会被判定 UP-TO-DATE 直接跳过、旧文件原地不动。这个任务的全部
+    // 意义就是维持「目录里只有当前版本」，跳过它没有任何收益，代价只是一次本地文件同步。
     outputs.upToDateWhen { false }
 }
 

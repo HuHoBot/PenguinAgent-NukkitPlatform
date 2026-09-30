@@ -32,6 +32,27 @@ dependencies {
     implementation("org.graalvm.truffle:truffle-runtime:$graal")
 }
 
+// 与 :server-Nukkit 的 gatherJar 同一套约定：产物汇集到 build/gather-jar/，
+// 发版流水线在那里按 `HuHoBot-*.jar` 通配取产物上传。没有这一步，引擎包只会留在
+// addon/GraalPy/build/libs/ 里，自动发的 Release 就只有插件本体，用户装完 .py 脚本
+// 会报「未安装 GraalPy 引擎」。
+val gatherJar by tasks.registering(Sync::class) {
+    group = "build"
+    description = "Collects the packaged GraalPy engine into build/gather-jar (removing stale jars)."
+    from(tasks.shadowJar.flatMap { it.archiveFile })
+    into(rootProject.layout.buildDirectory.dir("gather-jar"))
+
+    // 见 server/Nukkit 里同一处注释：三个模块的 Sync 指向同一个目录，必须声明各自负责的
+    // 文件名族，否则后跑的会把先跑的产物删掉。语义是「保留除本模块外的所有 HuHoBot-*」。
+    preserve {
+        include("HuHoBot-*")
+        exclude("HuHoBot-Engine-GraalPy-*.jar")
+    }
+
+    // 理由同 server/Nukkit：不清掉旧版本 jar，发版就会带上错版本。
+    outputs.upToDateWhen { false }
+}
+
 tasks.shadowJar {
     archiveFileName.set("HuHoBot-Engine-GraalPy-${project.version}.jar")
     mergeServiceFiles()
@@ -39,6 +60,7 @@ tasks.shadowJar {
         "META-INF/*.SF", "META-INF/*.DSA", "META-INF/*.RSA",
         "module-info.class", "**/module-info.class", "META-INF/versions/**"
     )
+    finalizedBy(gatherJar)
 }
 
 tasks.build {
