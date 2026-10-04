@@ -17,7 +17,14 @@ class PlayerEventFormat(
     val quitEnabled: Boolean,
     val quitFormat: String,
     /** 是否忽略平台事件的隐藏、取消或登录状态判断，始终转发进退服事件。 */
-    val alwaysForward: Boolean = false
+    val alwaysForward: Boolean = false,
+    /** 是否把玩家死亡播报到 QQ 群。 */
+    val deathEnabled: Boolean = false,
+    /**
+     * 死亡播报格式，可用 {name}、{player}、{server}、{platform}、{killer}、{message}。
+     * {message} 是中文死亡描述（不含死者名，如「被苦力怕杀死了」），{killer} 是击杀者名。
+     */
+    val deathFormat: String = "[游戏] {name} 死亡了"
 )
 
 class Motd(
@@ -131,6 +138,26 @@ interface ConfigProvider {
     fun formatPlayerQuitMessage(name: String): String =
         formatPlayerEventMessage(getPlayerEventFormat().quitFormat, name)
 
+    /**
+     * 格式化死亡播报。
+     *
+     * @param deathMessage 中文死亡描述（Spigot 侧由 DeathMessage 生成），替换格式中的 {message}
+     * @param killerName 击杀者名，替换格式中的 {killer}；环境死亡等没有击杀者时填「未知」
+     */
+    fun formatPlayerDeathMessage(name: String, deathMessage: String?, killerName: String? = null): String {
+        val message = deathMessage?.takeIf(String::isNotBlank)?.let { filterText(it) }.orEmpty()
+        val killer = killerName?.takeIf(String::isNotBlank) ?: "未知"
+        val result = getPlayerEventFormat().deathFormat
+            .replace("{message}", message)
+            .replace("{killer}", killer)
+            .replace("{name}", name)
+            .replace("{player}", name)
+            .replace("{server}", getServerName())
+            .replace("{platform}", getPlatform())
+            .trim()
+        return applyPlaceholders(name, convertAmpersandColors(result))
+    }
+
     fun formatPlayerEventMessage(format: String, name: String): String {
         val result = format
             .replace("{name}", name)
@@ -240,7 +267,28 @@ interface ConfigProvider {
     fun isAgentFetchResultHidden(): Boolean = true
 
     /** 绑定时是否需要游戏内 /qqbind 验证；关闭时直接绑定。 */
-    fun getBindingRequireGameVerification(): Boolean = false
+    fun getBindingRequireGameVerification(): Boolean = true
+
+    /**
+     * 是否开启强制绑定：未绑定的玩家进游戏会被踢出并拿到验证码，
+     * 必须先在 QQ 群完成绑定才能进入服务器。
+     *
+     * 注意：开启后请勿再叠加白名单插件或 Minecraft 自带白名单，
+     * 否则未绑定玩家会在白名单阶段先被拦下，拿不到验证码。
+     */
+    fun isForceBindEnabled(): Boolean = false
+
+    /** 强制绑定提示里展示的 QQ 群号列表；留空则不提示具体群号。 */
+    fun getForceBindGroups(): List<String> = emptyList()
+
+    /**
+     * 强制绑定场景下，玩家解除绑定后立即断开其在线连接。
+     *
+     * 由各平台实现（需要踢出在线玩家的能力）；未实现或玩家不在线时返回 false。
+     *
+     * @return 是否真的踢出了在线玩家
+     */
+    fun kickUnboundPlayer(playerName: String): Boolean = false
 
     /** /执行 命令黑名单：禁止通过 /执行 运行的服务器命令（不区分大小写）。 */
     fun getCommandBlacklist(): List<String> = emptyList()

@@ -34,6 +34,10 @@ player-events:
     enabled: true
     # 可用占位符：{name}、{player}、{server}、{platform}
     format: "[游戏] {name} 离开了服务器"
+  death:
+    enabled: true
+    # 可用占位符：{name}、{player}、{server}、{platform}、{killer}（击杀者）、{message}（中文死亡描述）
+    format: "[游戏] {message}"
 
 # 配置键对应插件数据目录 Markdown/ 下的文件。
 markdown:
@@ -66,7 +70,15 @@ features:
 
 binding:
   # 绑定时是否需要游戏内 /qqbind 验证；关闭时直接绑定无需游戏内操作
-  require-game-verification: false
+  # 强制绑定启用时本条配置无效
+  require-game-verification: true
+  # 强制绑定：未绑定的玩家进服务器会被踢出，并拿到一个 5 位验证码，
+  # 必须在 QQ 群执行 /绑定 <验证码> 完成绑定后才能重新进入。
+  # 如果需要开启，一定不要添加任何白名单插件，也不要开启 Minecraft 自带的白名单，
+  # 否则未绑定玩家会在白名单阶段先被拦下，拿到不了验证码。
+  force-bind: false
+  # 强制绑定提示里展示的 QQ 群号，可填多个；留空则不提示具体群号
+  force-bind-groups: []
 
 inventory:
   render:

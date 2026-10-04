@@ -180,7 +180,7 @@ class GroupMessageHandler(
 
         // 绑定：根据用户设置决定显示名
         val binding = if (senderOpenId.isNotEmpty()) {
-            CommandRepositories.bindings.getBinding(groupId, senderOpenId)
+            CommandRepositories.bindings.getBinding(senderOpenId)
         } else null
         val senderName = if (binding != null) {
             when (binding.mcDisplayNameMode) {
@@ -246,7 +246,7 @@ class GroupMessageHandler(
                 if (mentionName != "unknown" && mentionId.isNotEmpty()) {
                     NicknameManager.put(mentionName, mentionId)
                 }
-                val mentionBinding = CommandRepositories.bindings.getBinding(groupId, mentionId)
+                val mentionBinding = CommandRepositories.bindings.getBinding(mentionId)
                 val displayName = if (mentionBinding != null) {
                     when (mentionBinding.mcDisplayNameMode) {
                         "MC" -> mentionBinding.playerName

@@ -36,6 +36,8 @@ object QClient {
     private const val GROUP_NAME_RETRY_MILLIS = 30_000L
     private const val GROUP_PANELS_SYNC_RETRY_MILLIS = 1_000L
     private const val GROUP_PANELS_SYNC_MAX_ATTEMPTS = 120
+    /** 写接口限频 10 QPM，两次同步至少隔 6 秒。 */
+    private const val GROUP_PANELS_SYNC_MIN_INTERVAL_MS = 6_000L
 
     private val groupNameAttempts = ConcurrentHashMap<String, Long>()
 
@@ -134,6 +136,16 @@ object QClient {
     @Volatile
     private var groupPanelsSyncRetry: Cancelable? = null
 
+    /** 面板同步串行化：同一时刻只跑一次，期间的请求收敛成一次补跑。 */
+    private val groupPanelsSyncRunning = java.util.concurrent.atomic.AtomicBoolean(false)
+    private val groupPanelsSyncQueued = java.util.concurrent.atomic.AtomicBoolean(false)
+
+    @Volatile
+    private var groupPanelsSyncThrottled: Cancelable? = null
+
+    @Volatile
+    private var lastGroupPanelsSyncAt = 0L
+
     /** 获取 QQ Bot Starter 实例（供 Agent 群管理 API 使用）。 */
     fun getStarter(): Starter? = if (::starter.isInitialized) starter else null
 
@@ -188,7 +200,49 @@ object QClient {
         AddonManager.register(addon, addonCommands)
     }
 
+    /**
+     * 面板同步入口。
+     *
+     * 写接口（PUT/POST/DELETE）官方限频 10 QPM，而每注册/注销一条 QQ 群命令都会触发一次
+     * 同步——脚本插件批量加载时是突发调用。这里做两件事：
+     * 1. 同一时刻只跑一次同步，期间再来请求只记一个「待补跑」标记，收敛成一次；
+     * 2. 两次同步之间至少间隔 [GROUP_PANELS_SYNC_MIN_INTERVAL_MS]，避免突发撞限频
+     *    （限频会返回 40030009）或自己和自己撞出 30019。
+     */
     fun syncGroupPanels() {
+        if (!groupPanelsSyncRunning.compareAndSet(false, true)) {
+            groupPanelsSyncQueued.set(true)
+            return
+        }
+        try {
+            val now = System.currentTimeMillis()
+            val elapsed = now - lastGroupPanelsSyncAt
+            if (lastGroupPanelsSyncAt > 0L && elapsed < GROUP_PANELS_SYNC_MIN_INTERVAL_MS) {
+                // 太频繁，排到最小间隔之后补跑
+                groupPanelsSyncQueued.set(true)
+                scheduleGroupPanelsSyncThrottle(GROUP_PANELS_SYNC_MIN_INTERVAL_MS - elapsed)
+                return
+            }
+            syncGroupPanelsOnce()
+            lastGroupPanelsSyncAt = System.currentTimeMillis()
+        } finally {
+            groupPanelsSyncRunning.set(false)
+        }
+        if (groupPanelsSyncQueued.compareAndSet(true, false)) {
+            scheduleGroupPanelsSyncThrottle(GROUP_PANELS_SYNC_MIN_INTERVAL_MS)
+        }
+    }
+
+    /** 节流后的补跑；同时只会有一个待跑定时器。 */
+    private fun scheduleGroupPanelsSyncThrottle(delayMs: Long) {
+        if (groupPanelsSyncThrottled != null) return
+        groupPanelsSyncThrottled = BotShared.getPlugin().submitLater(delayMs.coerceAtLeast(0L)) {
+            groupPanelsSyncThrottled = null
+            syncGroupPanels()
+        }
+    }
+
+    private fun syncGroupPanelsOnce() {
         if (!::starter.isInitialized || !::groupMessageHandler.isInitialized) {
             groupPanelsSyncPending = true
             return
@@ -304,8 +358,8 @@ object QClient {
             plugin.getGroupOpenIdList().forEach { groupId ->
                 try {
                     // 每个群各用各的被动票据，因此 payload 必须逐群构造。
+                    // 官方要求：传了 markdown 后 content 必须为空，否则服务端按纯文本处理并丢弃 keyboard。
                     val groupPayload = V2MsgData()
-                        .setContent(content)
                         .setMsg_type(2)
                         .setMarkdown(markdown)
                         .withPassiveTicket(groupId)
@@ -318,35 +372,17 @@ object QClient {
     }
 
     /**
-     * 根据 Minecraft 玩家名查找绑定信息（跨群搜索）。
+     * 根据 Minecraft 玩家名查找绑定信息（绑定全局共享，无需逐群搜索）。
      * 返回 BindingInfo + QQ 昵称。
      */
     private fun findBindingByPlayerName(playerName: String): BindingLookupResult? {
-        val plugin = BotShared.getPlugin()
-        for (groupId in plugin.getGroupOpenIdList()) {
-            val entry = CommandRepositories.bindings.findByPlayerName(groupId, playerName)
-            if (entry != null) {
-                val qqName = entry.value.qqUsername.ifEmpty {
-                    NicknameManager.getNickname(entry.key)
-                        ?: NicknameManager.all().firstOrNull { it.second == entry.key }?.first
-                        ?: "QQ用户"
-                }
-                return BindingLookupResult(entry.value, qqName)
-            }
+        val entry = CommandRepositories.bindings.findByPlayerName(playerName) ?: return null
+        val qqName = entry.value.qqUsername.ifEmpty {
+            NicknameManager.getNickname(entry.key)
+                ?: NicknameManager.all().firstOrNull { it.second == entry.key }?.first
+                ?: "QQ用户"
         }
-        // 也搜索所有群（包括未配置的群）
-        for (groupId in CommandRepositories.bindings.allBindings().keys) {
-            val entry = CommandRepositories.bindings.findByPlayerName(groupId, playerName)
-            if (entry != null) {
-                val qqName = entry.value.qqUsername.ifEmpty {
-                    NicknameManager.getNickname(entry.key)
-                        ?: NicknameManager.all().firstOrNull { it.second == entry.key }?.first
-                        ?: "QQ用户"
-                }
-                return BindingLookupResult(entry.value, qqName)
-            }
-        }
-        return null
+        return BindingLookupResult(entry.value, qqName)
     }
 
     private data class BindingLookupResult(
@@ -375,18 +411,11 @@ object QClient {
             }
         }
 
-        // 匹配绑定的 MC 玩家名：@PlayerName 或 PlayerName → <@openid>
-        val plugin = BotShared.getPlugin()
-        for (groupId in plugin.getGroupOpenIdList()) {
-            val bindings = CommandRepositories.bindings.allInGroup(groupId)
-            for ((_, info) in bindings) {
-                val mcName = info.playerName
-                val pattern = Regex("(?<![<a-zA-Z0-9])@?${Regex.escape(mcName)}(?![>a-zA-Z0-9])")
-                result = result.replace(pattern) { _ ->
-                    val entry = CommandRepositories.bindings.findByPlayerName(groupId, mcName)
-                    if (entry != null) "<@${entry.key}>" else mcName
-                }
-            }
+        // 匹配绑定的 MC 玩家名：@PlayerName 或 PlayerName → <@openid>（绑定全局共享）
+        for ((openId, info) in CommandRepositories.bindings.allBindings()) {
+            val mcName = info.playerName
+            val pattern = Regex("(?<![<a-zA-Z0-9])@?${Regex.escape(mcName)}(?![>a-zA-Z0-9])")
+            result = result.replace(pattern) { _ -> "<@$openId>" }
         }
         // 处理直接输入的 @openid：尝试转为昵称，找不到就去掉
         result = result.replace(Regex("@([0-9A-Fa-f]{20,})(?=\\s|\$)")) { match ->
@@ -413,13 +442,27 @@ object QClient {
         sendTextToGroups(plugin.formatPlayerQuitMessage(escapeMarkdown(playerName)), "发送玩家退服通知")
     }
 
+    /** 按配置向所有 QQ 群发送玩家死亡播报。 */
+    fun broadcastPlayerDeath(playerName: String, deathMessage: String?, killerName: String? = null) {
+        if (!::starter.isInitialized) return
+        val plugin = BotShared.getPlugin()
+        if (!plugin.getPlayerEventFormat().deathEnabled) return
+        val text = plugin.formatPlayerDeathMessage(
+            escapeMarkdown(playerName),
+            deathMessage?.let(::escapeMarkdown),
+            killerName?.let(::escapeMarkdown)
+        )
+        sendTextToGroups(text, "发送玩家死亡播报")
+    }
+
     /** 向指定 QQ 群发送文本消息（始终使用 markdown 模式）。 */
     fun sendTextToGroup(groupOpenId: String, content: String) {
         if (!::starter.isInitialized) return
         if (content.isBlank()) return
         val plugin = BotShared.getPlugin()
         val markdown = Markdown().setContent(content)
-        val payload = V2MsgData().setContent(content).setMsg_type(2).setMarkdown(markdown)
+        // 官方要求：传了 markdown 后 content 必须为空，否则服务端按纯文本处理并丢弃 keyboard
+        val payload = V2MsgData().setMsg_type(2).setMarkdown(markdown)
             .withPassiveTicket(groupOpenId)
         Thread {
             try {
@@ -438,7 +481,8 @@ object QClient {
             plugin.getGroupOpenIdList().forEach { groupId ->
                 try {
                     // 每个群各用各的被动票据，因此 payload 必须逐群构造。
-                    val payload = V2MsgData().setContent(content).setMsg_type(2).setMarkdown(markdown)
+                    // 官方要求：传了 markdown 后 content 必须为空，否则服务端按纯文本处理并丢弃 keyboard。
+                    val payload = V2MsgData().setMsg_type(2).setMarkdown(markdown)
                         .withPassiveTicket(groupId)
                     starter.bot.groupBaseV2.send(groupId, JSON.toJSONString(payload), Channel.SEND_MESSAGE_HEADERS)
                 } catch (e: Exception) {
@@ -462,8 +506,8 @@ object QClient {
         plugin.getGroupOpenIdList().forEach { groupId ->
             try {
                 // 每个群各用各的被动票据，因此 payload 必须逐群构造。
+                // 官方要求：传了 markdown 后 content 必须为空，否则服务端按纯文本处理并丢弃 keyboard。
                 val groupPayload = V2MsgData()
-                    .setContent(markdownContent)
                     .setMsg_type(2)
                     .setMarkdown(markdown)
                     .withPassiveTicket(groupId)
@@ -487,8 +531,8 @@ object QClient {
         if (markdownContent.isBlank()) return null
 
         val markdown = Markdown().setContent(markdownContent)
+        // 官方要求：传了 markdown 后 content 必须为空，否则服务端按纯文本处理并丢弃 keyboard
         val payload = V2MsgData()
-            .setContent(markdownContent)
             .setMsg_type(2)
             .setMarkdown(markdown)
             .withPassiveTicket(groupOpenId)
@@ -585,8 +629,8 @@ object QClient {
             markdown.setKeyboard(keyboard)
         }
 
+        // 官方要求：传了 markdown 后 content 必须为空，否则服务端按纯文本处理并丢弃 keyboard
         val payload = V2MsgData()
-            .setContent(markdownContent)
             .setMsg_type(2)
             .setMarkdown(markdown)
             .setMsg_id(messageId)
@@ -627,8 +671,8 @@ object QClient {
             markdown.setKeyboard(keyboard)
         }
 
+        // 官方要求：传了 markdown 后 content 必须为空，否则服务端按纯文本处理并丢弃 keyboard
         val payload = V2MsgData()
-            .setContent(markdownContent)
             .setMsg_type(2)
             .setMarkdown(markdown)
             .setMsg_id(event.rawMessage.id)
@@ -726,7 +770,6 @@ object QClient {
         val content = plugin.applyPlaceholders(playerName, plugin.formatGameMessage(safeName, filtered))
         val markdown = Markdown().setContent(content)
         val payload = V2MsgData()
-            .setContent(content)
             .setMsg_type(2)
             .setMarkdown(markdown)
         plugin.getGroupOpenIdList().forEach { groupId ->

@@ -29,10 +29,10 @@ class ConfigManager(
         mergeDuplicateTopLevelSections()
         plugin.reloadConfig()
 
-        var changed = migratePostPrefix()
+        var changed = appendMissingConfigEntries()
+        changed = migratePostPrefix() || changed
         changed = removeLegacyMotdOptions() || changed
         changed = removeLegacyInventoryCommandOptions() || changed
-        changed = ConfigUpgrader.fillMissing(DEFAULT_VALUES, plugin.config::contains, plugin.config::set) || changed
 
         val previousVersion = plugin.config.getInt(CONFIG_VERSION_PATH, 0)
 
@@ -54,6 +54,41 @@ class ConfigManager(
             plugin.logger.info("配置文件已升级到版本 $CURRENT_CONFIG_VERSION（旧版本：$previousVersion）")
         }
 
+    }
+
+    /**
+     * 把新增配置项与注释补进 config.yml。
+     *
+     * 走文本级增量修改而不是 `config.set` + `saveConfig()`：
+     * 前者能真正给旧配置补上模板里新增的键（`config.contains` 会被模板默认值干扰），
+     * 并且不会清掉用户文件里的注释。详见 [ConfigMigrator]。
+     */
+    private fun appendMissingConfigEntries(): Boolean {
+        if (!configFile.isFile) return false
+        val raw = try {
+            configFile.readText(Charsets.UTF_8)
+        } catch (_: Exception) {
+            return false
+        }
+
+        val result = ConfigMigrator.apply(raw, DEFAULT_VALUES, KEY_COMMENTS, EXTRA_NOTES)
+        if (!result.changed) return false
+
+        return try {
+            configFile.writeText(result.text, Charsets.UTF_8)
+            // 让内存配置与文件同步，后续读取才能看到刚追加的键
+            plugin.reloadConfig()
+            if (result.addedKeys.isNotEmpty()) {
+                plugin.logger.info("已为配置文件追加 ${result.addedKeys.size} 个新配置项：${result.addedKeys.joinToString(", ")}")
+            }
+            if (result.commentedKeys.isNotEmpty()) {
+                plugin.logger.info("已补回 ${result.commentedKeys.size} 项配置注释")
+            }
+            true
+        } catch (error: Exception) {
+            plugin.logger.warning("追加新配置项失败: ${error.message}")
+            false
+        }
     }
 
     /** 合并旧配置升级器追加的重复顶层段，保留各段中的命令开关和 Agent 设置。 */
@@ -197,7 +232,12 @@ class ConfigManager(
             "player-events.quit.format",
             "[游戏] {name} 离开了服务器"
         )!!,
-        alwaysForward = plugin.config.getBoolean("player-events.always-forward", false)
+        alwaysForward = plugin.config.getBoolean("player-events.always-forward", false),
+        deathEnabled = plugin.config.getBoolean("player-events.death.enabled", true),
+        deathFormat = plugin.config.getString(
+            "player-events.death.format",
+            "[游戏] {message}"
+        )!!
     )
 
     fun markdownFiles(): Map<String, String> {
@@ -318,7 +358,12 @@ class ConfigManager(
         plugin.config.getBoolean("agent.hide-fetch-results", true)
 
     fun bindingRequireGameVerification(): Boolean =
-        plugin.config.getBoolean("binding.require-game-verification", false)
+        plugin.config.getBoolean("binding.require-game-verification", true)
+
+    fun isForceBindEnabled(): Boolean = plugin.config.getBoolean("binding.force-bind", false)
+
+    fun forceBindGroups(): List<String> =
+        plugin.config.getStringList("binding.force-bind-groups").map { it.trim() }.filter { it.isNotEmpty() }
 
     fun customInventoryBackgroundEnabled(): Boolean =
         plugin.config.getBoolean("inventory.render.custom-background.enabled", false)
@@ -351,7 +396,7 @@ class ConfigManager(
     }
 
     companion object {
-        private const val CURRENT_CONFIG_VERSION = 8
+        private const val CURRENT_CONFIG_VERSION = 9
         private const val CONFIG_VERSION_PATH = "config-version"
 
         private val COMMANDS_HIDDEN_FROM_MENU = setOf("blockMotd", "unblockMotd")
@@ -373,6 +418,15 @@ class ConfigManager(
             )
         )
 
+        /**
+         * 定点补充说明：给已有注释的配置项再加一行补充。
+         *
+         * 用于说明某项在特定开关下不生效，避免用户同时维护两个互斥配置。
+         */
+        private val EXTRA_NOTES: Map<String, String> = mapOf(
+            "binding.require-game-verification" to "强制绑定启用时本条配置无效"
+        )
+
         /** 每个配置项的注释说明，用于自动追加时生成可读的 YAML。 */
         private val KEY_COMMENTS: Map<String, String> = mapOf(
             "bot.app-id" to "",
@@ -391,6 +445,8 @@ class ConfigManager(
             "player-events.quit.enabled" to "是否转发玩家退服通知",
             "player-events.quit.format" to "退服通知格式，可用占位符：{name}、{player}、{server}、{platform}",
             "player-events.always-forward" to "是否忽略平台事件的隐藏/取消/登录状态判断，始终转发进退服事件",
+            "player-events.death.enabled" to "是否转发玩家死亡播报",
+            "player-events.death.format" to "死亡播报格式，可用占位符：{name}、{player}、{server}、{platform}、{message}（中文死亡描述）",
             "markdown.queryOnline" to "查在线命令使用的 Markdown 模板文件名",
             "motd.server-ip" to "MOTD 查询的服务器地址",
             "motd.server-port" to "MOTD 查询的服务器端口",
@@ -404,7 +460,9 @@ class ConfigManager(
             "admin.openids" to "手动添加的管理员 OpenId 列表",
             "features.full-amount" to "是否默认开启全量聊天转发",
             "features.enable-auth" to "是否启用 QQ 头像认证功能",
-            "binding.require-game-verification" to "绑定时是否需要游戏内 /qqbind 验证；关闭时直接绑定无需游戏内操作",
+            "binding.require-game-verification" to "绑定时是否需要游戏内 /qqbind 验证；关闭时直接绑定无需游戏内操作；强制绑定启用时本条配置无效",
+            "binding.force-bind" to "强制绑定：未绑定玩家进游戏会被踢出并拿到 5 位验证码，必须先在 QQ 群执行 /绑定 <验证码> 才能进入；开启后请勿再叠加白名单插件或 Minecraft 自带白名单",
+            "binding.force-bind-groups" to "强制绑定提示里展示的 QQ 群号列表，留空则不提示具体群号",
             "inventory.render.custom-background.enabled" to "是否启用用户自定义背包底图",
             "inventory.render.custom-background.inventory-file" to "背包底图文件名，文件放在 inventory/backgrounds/ 目录",
             "inventory.render.custom-background.ender-chest-file" to "末影箱底图文件名；留空时复用背包底图",
@@ -449,7 +507,8 @@ class ConfigManager(
             "我的背包",
             "我的末影箱",
             "背包查看",
-            "末影箱查看"
+            "末影箱查看",
+            "强制解绑"
         )
 
         private val DEFAULT_VALUES: Map<String, Any> = buildMap {
@@ -472,6 +531,8 @@ class ConfigManager(
             put("player-events.quit.enabled", true)
             put("player-events.quit.format", "[游戏] {name} 离开了服务器")
             put("player-events.always-forward", false)
+            put("player-events.death.enabled", true)
+            put("player-events.death.format", "[游戏] {message}")
 
             put("markdown.queryOnline", "online.md")
 
@@ -497,7 +558,9 @@ class ConfigManager(
             put("agent.model", "gpt-4o-mini")
             put("agent.command-mode", "manual")
             put("agent.hide-fetch-results", true)
-            put("binding.require-game-verification", false)
+            put("binding.require-game-verification", true)
+            put("binding.force-bind", false)
+            put("binding.force-bind-groups", emptyList<String>())
             put("inventory.render.custom-background.enabled", false)
             put("inventory.render.custom-background.inventory-file", "inventory.png")
             put("inventory.render.custom-background.ender-chest-file", "")
