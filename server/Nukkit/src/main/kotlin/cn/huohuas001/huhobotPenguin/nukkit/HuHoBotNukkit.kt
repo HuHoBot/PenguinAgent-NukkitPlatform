@@ -299,6 +299,33 @@ class HuHoBotNukkit : PluginBase(), HuHoBot {
 
     override fun getForceBindGroups(): List<String> = config.forceBindGroups()
 
+    override fun getVerifyExemptPlayers(): List<String> = config.verifyExemptPlayers()
+
+    /**
+     * 写回免验证名单。
+     *
+     * 走 [applyWebUiConfigChanges] 这条通用写入通道，保证 config.yml 落盘后
+     * 配置缓存同步刷新，不必重启即可生效。
+     */
+    private fun saveVerifyExemptPlayers(players: List<String>): Boolean {
+        val changes = JSONObject()
+        changes["binding.verify-exempt"] = players
+        return applyWebUiConfigChanges(changes)
+    }
+
+    override fun addVerifyExemptPlayer(playerName: String): Boolean {
+        if (playerName.isBlank()) return false
+        if (isVerifyExempt(playerName)) return true
+        return saveVerifyExemptPlayers(config.verifyExemptPlayers() + playerName)
+    }
+
+    override fun removeVerifyExemptPlayer(playerName: String): Boolean {
+        if (playerName.isBlank()) return false
+        val remaining = config.verifyExemptPlayers()
+            .filterNot { it.equals(playerName, ignoreCase = true) }
+        return saveVerifyExemptPlayers(remaining)
+    }
+
     /**
      * 解绑后立即踢出在线玩家（仅强制绑定开启时由调用方触发）。
      *
@@ -306,6 +333,8 @@ class HuHoBotNukkit : PluginBase(), HuHoBot {
      * 直到下次进服才被守卫拦下。
      */
     override fun kickUnboundPlayer(playerName: String): Boolean {
+        // 免验证玩家解绑后照样能进服，踢出没有意义
+        if (isVerifyExempt(playerName)) return false
         val target = server.getPlayer(playerName) ?: return false
         val separator = "${cn.nukkit.utils.TextFormat.DARK_GRAY}${cn.nukkit.utils.TextFormat.STRIKETHROUGH}${"─".repeat(30)}"
         val reason = buildString {

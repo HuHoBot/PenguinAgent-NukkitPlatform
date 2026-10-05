@@ -201,6 +201,10 @@ class YamlConfig(
     fun forceBindGroups(): List<String> =
         stringList("binding.force-bind-groups").map { it.trim() }.filter { it.isNotEmpty() }
 
+    /** 免验证名单：这些玩家无需 QQ 绑定即可进入服务器。 */
+    fun verifyExemptPlayers(): List<String> =
+        stringList("binding.verify-exempt").map { it.trim() }.filter { it.isNotEmpty() }
+
     fun commandBlacklist(): List<String> = stringList("command-blacklist")
         .map { it.trim().lowercase() }
         .filter(String::isNotEmpty)

@@ -12,7 +12,7 @@ import cn.huohuas001.huhobotPenguin.adapter.config.YamlConfig
  */
 object ConfigMigrator {
 
-    private const val CURRENT_CONFIG_VERSION = 9
+    private const val CURRENT_CONFIG_VERSION = 10
     private const val CONFIG_VERSION_PATH = "config-version"
 
     /** 应当存在的键与默认值；只补「文件里完全没有」的键，不覆盖用户已填的值。 */
@@ -50,6 +50,7 @@ object ConfigMigrator {
         "binding.require-game-verification" to true,
         "binding.force-bind" to false,
         "binding.force-bind-groups" to emptyList<String>(),
+        "binding.verify-exempt" to emptyList<String>(),
         "inventory.render.custom-background.enabled" to false,
         "inventory.render.custom-background.inventory-file" to "inventory.png",
         "inventory.render.custom-background.ender-chest-file" to "",
