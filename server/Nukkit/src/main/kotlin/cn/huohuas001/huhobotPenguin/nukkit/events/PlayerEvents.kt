@@ -5,6 +5,7 @@ import cn.huohuas001.huhobotPenguin.nukkit.HuHoBotNukkit
 import cn.nukkit.event.EventHandler
 import cn.nukkit.event.Listener
 import cn.nukkit.event.player.PlayerChatEvent
+import cn.nukkit.event.player.PlayerDeathEvent
 import cn.nukkit.event.player.PlayerJoinEvent
 import cn.nukkit.event.player.PlayerQuitEvent
 
@@ -26,6 +27,16 @@ class PlayerEvents(private val plugin: HuHoBotNukkit) : Listener {
     fun onPlayerQuit(event: PlayerQuitEvent) {
         if (suppressed(event.quitMessage)) return
         QClient.broadcastPlayerQuit(event.player.name)
+    }
+
+    /** 玩家死亡播报；开关与格式由 player-events.death 配置控制（在 QClient.broadcastPlayerDeath 内判断）。 */
+    @EventHandler
+    fun onPlayerDeath(event: PlayerDeathEvent) {
+        QClient.broadcastPlayerDeath(
+            event.entity.name,
+            DeathMessage.describe(event),
+            DeathMessage.killerOf(event)
+        )
     }
 
     /**

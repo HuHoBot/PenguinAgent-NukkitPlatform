@@ -12,7 +12,7 @@ import cn.huohuas001.huhobotPenguin.adapter.config.YamlConfig
  */
 object ConfigMigrator {
 
-    private const val CURRENT_CONFIG_VERSION = 8
+    private const val CURRENT_CONFIG_VERSION = 9
     private const val CONFIG_VERSION_PATH = "config-version"
 
     /** 应当存在的键与默认值；只补「文件里完全没有」的键，不覆盖用户已填的值。 */
@@ -32,6 +32,8 @@ object ConfigMigrator {
         "player-events.quit.enabled" to true,
         "player-events.quit.format" to "[游戏] {name} 离开了服务器",
         "player-events.always-forward" to false,
+        "player-events.death.enabled" to true,
+        "player-events.death.format" to "[游戏] {message}",
         "markdown.queryOnline" to "online.md",
         "command-sender" to "Hybrid",
         "motd.server-ip" to "127.0.0.1",
@@ -45,7 +47,9 @@ object ConfigMigrator {
         "admin.openids" to emptyList<String>(),
         "features.full-amount" to false,
         "features.enable-auth" to true,
-        "binding.require-game-verification" to false,
+        "binding.require-game-verification" to true,
+        "binding.force-bind" to false,
+        "binding.force-bind-groups" to emptyList<String>(),
         "inventory.render.custom-background.enabled" to false,
         "inventory.render.custom-background.inventory-file" to "inventory.png",
         "inventory.render.custom-background.ender-chest-file" to "",

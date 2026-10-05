@@ -16,6 +16,7 @@ import cn.huohuas001.bot.provider.Motd
 import cn.huohuas001.bot.provider.PlayerEventFormat
 import cn.huohuas001.bot.provider.WhiteList
 import cn.huohuas001.bot.tools.Cancelable
+import cn.huohuas001.bot.web.QrAuthState
 import cn.huohuas001.bot.web.WebUiServer
 import cn.huohuas001.huhobotPenguin.adapter.api.MsgPack
 import cn.huohuas001.huhobotPenguin.adapter.api.toMsgPack
@@ -27,6 +28,7 @@ import cn.huohuas001.huhobotPenguin.nukkit.commands.HuHoBotCommand
 import cn.huohuas001.huhobotPenguin.nukkit.commands.NukkitCommandExecutor
 import cn.huohuas001.huhobotPenguin.nukkit.commands.QqBindCommand
 import cn.huohuas001.huhobotPenguin.nukkit.commands.SendCommand
+import cn.huohuas001.huhobotPenguin.nukkit.events.ForceBindGuard
 import cn.huohuas001.huhobotPenguin.nukkit.events.OnBotCommand
 import cn.huohuas001.huhobotPenguin.nukkit.events.OnBotRecvMsg
 import cn.huohuas001.huhobotPenguin.nukkit.events.PlayerEvents
@@ -84,10 +86,13 @@ class HuHoBotNukkit : PluginBase(), HuHoBot {
         offlineInventorySnapshots = OfflineInventorySnapshots(this).also { it.start() }
 
         server.pluginManager.registerEvents(PlayerEvents(this), this)
+        server.pluginManager.registerEvents(ForceBindGuard(this), this)
         PlaceholderApiSupport.setup(this)
         preloadAddonApiClasses()
         loadScriptAddons()
         initializeRuntime()
+        // QQ 客户端是异步启动的，延迟检查一次强制绑定是否可用（不可用会自动关闭开关）
+        scheduleForceBindCheck()
         log_info("HuHoBotPenguin-NukkitPlatform 已加载（平台：Nukkit-MOT，服务端版本：${server.version}）")
     }
 
@@ -119,6 +124,8 @@ class HuHoBotNukkit : PluginBase(), HuHoBot {
         InventoryRenderer.init(dataFolder, config.inventoryRender(), this::log_warning)
         PlaceholderApiSupport.setup(this)
         reloadRuntimeConfig()
+        // 配置里开着强制绑定但 QQ 不可用时，自动改回关闭，避免把玩家挡在门外
+        ensureForceBindAvailable()
     }
 
     /**
@@ -287,6 +294,66 @@ class HuHoBotNukkit : PluginBase(), HuHoBot {
     override fun getAgentModel(): String? = config.agentModel()
     override fun getAgentCommandMode(): AgentCommandMode = config.agentCommandMode()
     override fun getBindingRequireGameVerification(): Boolean = config.bindingRequireGameVerification()
+
+    override fun isForceBindEnabled(): Boolean = config.forceBindEnabled()
+
+    override fun getForceBindGroups(): List<String> = config.forceBindGroups()
+
+    /**
+     * 解绑后立即踢出在线玩家（仅强制绑定开启时由调用方触发）。
+     *
+     * 不这样做的话，玩家可以先绑定进服、再在 QQ 里解绑，之后继续留在服务器里，
+     * 直到下次进服才被守卫拦下。
+     */
+    override fun kickUnboundPlayer(playerName: String): Boolean {
+        val target = server.getPlayer(playerName) ?: return false
+        val separator = "${cn.nukkit.utils.TextFormat.DARK_GRAY}${cn.nukkit.utils.TextFormat.STRIKETHROUGH}${"─".repeat(30)}"
+        val reason = buildString {
+            appendLine(separator)
+            appendLine("${cn.nukkit.utils.TextFormat.RED}${cn.nukkit.utils.TextFormat.BOLD}绑定已解除")
+            appendLine(separator)
+            appendLine("${cn.nukkit.utils.TextFormat.GRAY}你的 QQ 绑定已被解除，本次游戏会话已结束。")
+            appendLine("${cn.nukkit.utils.TextFormat.GRAY}重新进入服务器时需要重新绑定。")
+        }
+        // 延后到下一 tick，避免在消息回调里直接改变玩家状态（Nukkit submitLater 单位是 tick）
+        submitLater(1L) {
+            if (target.isOnline) target.kick(reason)
+        }
+        log_info("强制绑定: $playerName 已解除绑定，踢出在线会话")
+        return true
+    }
+
+    /**
+     * 强制绑定的前置条件是 QQ 机器人可用：玩家被踢出后要能在 QQ 群完成绑定。
+     *
+     * QQ 连接失败时若仍开着强制绑定，所有未绑定玩家都会被挡在门外且无法完成绑定，
+     * 因此这里直接把开关改回 false 并落盘。
+     *
+     * @return 强制绑定最终是否处于开启状态
+     */
+    fun ensureForceBindAvailable(): Boolean {
+        if (!config.forceBindEnabled()) return false
+        if (QClient.getStarter() != null) return true
+
+        log_error("QQ 机器人未连接，无法完成强制绑定的验证码流程，已自动关闭 binding.force-bind")
+        config.set("binding.force-bind", false)
+        config.save()
+        return false
+    }
+
+    /**
+     * 启动后确认强制绑定是否可用。
+     *
+     * QQ 客户端是异步启动的，刚开启时通常还没连上，所以这里延迟一段时间再检查；
+     * 连上则保持开启，未连上则由 [ensureForceBindAvailable] 自动关闭。
+     */
+    private fun scheduleForceBindCheck() {
+        if (!config.forceBindEnabled()) return
+        submitLater(FORCE_BIND_CHECK_DELAY_TICKS) {
+            ensureForceBindAvailable()
+        }
+    }
+
     override fun getCommandBlacklist(): List<String> = config.commandBlacklist()
 
     override fun getWebUiPort(): Int = config.webUiPort()
@@ -412,33 +479,27 @@ class HuHoBotNukkit : PluginBase(), HuHoBot {
     // ---------------------------------------------------------------- 扫码登录
 
     /**
-     * 未配置凭据时走扫码登录。
-     *
-     * 与 Spigot 适配器的差别：这里把扫码流程放进异步线程，避免未扫码时把服务端启动挂死。
+     * 凭据为空时不再在异步线程里跑阻塞式扫码循环，改为在后台开启扫码授权会话
+     * （控制台与 WebUI 共用同一个会话），WebUI 照常启动。
      */
     override fun launchQqClient() {
         val appId = getBotAppId()
         val secret = getBotSecret()
-        if (appId.isNotBlank() && secret.isNotBlank()) {
-            submitAsync { startClient(appId, secret) }
+        if (appId.isBlank() || secret.isBlank()) {
+            log_info("未配置 bot.app-id / bot.secret，已开启扫码授权：扫描控制台二维码，或打开 WebUI「QQ 机器人」页面扫码")
+            QrLoginManager.start(this)
             return
         }
-
-        log_warning("未配置 bot.app-id / bot.secret，尝试扫码登录（也可手动填写后重启）")
-        submitAsync {
-            val credentials = try {
-                QrLoginManager.doQrLogin(this)
-            } catch (error: Throwable) {
-                log_error("扫码登录失败: ${error.message}")
-                null
-            }
-            if (credentials == null) {
-                log_warning("未获得 QQ 机器人凭据，QQ 客户端未启动")
-                return@submitAsync
-            }
-            startClient(credentials.appId, credentials.appSecret)
-        }
+        submitAsync { startClient(appId, secret) }
     }
+
+    // ---------------------------------------------------------------- WebUI 扫码授权桥接
+
+    override fun getQrAuthState(): QrAuthState = QrLoginManager.state()
+
+    override fun startQrAuth(): Boolean = QrLoginManager.start(this)
+
+    override fun cancelQrAuth(): Boolean = QrLoginManager.cancel()
 
     private fun startClient(appId: String, secret: String) {
         try {
@@ -752,5 +813,13 @@ class HuHoBotNukkit : PluginBase(), HuHoBot {
 
         /** 等待主线程派发扩展事件的超时。超时后按「扩展未处理」继续，不卡住 QQ 回调线程。 */
         const val EVENT_TIMEOUT_SECONDS = 30L
+
+        /**
+         * 启动后延迟多久检查 QQ 是否连上（QQ 客户端为异步启动，留出 15 秒连接时间）。
+         *
+         * ⚠️ 单位是 **tick**（20 tick = 1 秒），不是毫秒。上游 Spigot 侧写的是 15_000L
+         * 传给 runTaskLater，实际会等 750 秒——这里按 15 秒的本意写 300。
+         */
+        const val FORCE_BIND_CHECK_DELAY_TICKS = 300L
     }
 }

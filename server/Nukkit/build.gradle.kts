@@ -32,8 +32,9 @@ dependencies {
     // common-Bot 以 implementation 方式引入 fastjson，此处需自行声明才能在模块内直接使用。
     implementation("com.alibaba:fastjson:2.0.32")
 
-    // 首次启动扫码登录：控制台二维码渲染。
+    // 扫码登录：控制台二维码渲染（core）+ WebUI 二维码 PNG Base64（javase 的 MatrixToImageWriter）。
     implementation("com.google.zxing:core:3.5.3")
+    implementation("com.google.zxing:javase:3.5.3")
 
     // 脚本扩展引擎。
     // JS：与 AXDA-ScriptEngine 相同的 GraalJS（MIT，https://github.com/Ruokwok/AXDA-ScriptEngine）。

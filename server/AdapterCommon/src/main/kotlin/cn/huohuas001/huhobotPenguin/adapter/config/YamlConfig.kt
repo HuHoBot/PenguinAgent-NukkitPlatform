@@ -76,7 +76,9 @@ class YamlConfig(
         joinFormat = string("player-events.join.format", "[游戏] {name} 加入了服务器"),
         quitEnabled = boolean("player-events.quit.enabled", true),
         quitFormat = string("player-events.quit.format", "[游戏] {name} 离开了服务器"),
-        alwaysForward = boolean("player-events.always-forward", false)
+        alwaysForward = boolean("player-events.always-forward", false),
+        deathEnabled = boolean("player-events.death.enabled", true),
+        deathFormat = string("player-events.death.format", "[游戏] {message}")
     )
 
     fun markdownFiles(): Map<String, String> {
@@ -189,7 +191,15 @@ class YamlConfig(
 
     fun placeholderApiEnabled(): Boolean = boolean("placeholder-api.enabled", true)
 
-    fun bindingRequireGameVerification(): Boolean = boolean("binding.require-game-verification", false)
+    /** 绑定时是否需要游戏内 /qqbind 验证；强制绑定启用时本条配置无效。默认 true 与上游 v1.17.0 对齐。 */
+    fun bindingRequireGameVerification(): Boolean = boolean("binding.require-game-verification", true)
+
+    /** 强制绑定：未绑定玩家进服被踢出并拿验证码，必须在 QQ 群 /绑定 后才能进入。 */
+    fun forceBindEnabled(): Boolean = boolean("binding.force-bind", false)
+
+    /** 强制绑定提示里展示的 QQ 群号列表；留空则不提示具体群号。 */
+    fun forceBindGroups(): List<String> =
+        stringList("binding.force-bind-groups").map { it.trim() }.filter { it.isNotEmpty() }
 
     fun commandBlacklist(): List<String> = stringList("command-blacklist")
         .map { it.trim().lowercase() }
