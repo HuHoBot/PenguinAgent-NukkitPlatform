@@ -48,6 +48,29 @@ markdown:
 # Nukkit 侧命令输出通过自定义 CommandSender 捕获；Hybrid 同时收集发送者输出与服务端日志。
 command-sender: "Hybrid"
 
+# 服务器状态通知：关闭 / 重启完成 / 意外关闭时推送到 bot.groups 里的所有群。
+# 关机通知在插件卸载的瞬间发送（此时 QQ 连接还活着）；重启与意外关闭只能在下次启动时判断，
+# 因此会在机器人连上 QQ 后补发。
+server-notify:
+  # 总开关，关闭后下面三项都不发送
+  enabled: true
+  shutdown:
+    enabled: true
+    # 可用占位符：{server}、{platform}
+    message: "服务器已正常关闭"
+  restart:
+    enabled: true
+    # 可用占位符：{server}、{platform}
+    message: "服务器已重启完成"
+  crash:
+    enabled: true
+    # 上次运行没有正常关闭（崩溃、kill -9、断电等）时，下次启动后发送
+    # 可用占位符：{server}、{platform}
+    message: "服务器意外关闭（崩溃或被强制结束），请管理员检查控制台"
+  # 上次正常关闭后多少秒内重新启动算作重启，建议 120-300
+  # 超过这个时间再启动只会当作普通开机，不发送通知
+  restart-window: 180
+
 motd:
   server-ip: "127.0.0.1"
   # Bedrock 默认端口。

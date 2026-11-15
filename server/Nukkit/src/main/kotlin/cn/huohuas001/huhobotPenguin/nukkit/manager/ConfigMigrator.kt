@@ -12,7 +12,7 @@ import cn.huohuas001.huhobotPenguin.adapter.config.YamlConfig
  */
 object ConfigMigrator {
 
-    private const val CURRENT_CONFIG_VERSION = 11
+    private const val CURRENT_CONFIG_VERSION = 12
     private const val CONFIG_VERSION_PATH = "config-version"
 
     /** 应当存在的键与默认值；只补「文件里完全没有」的键，不覆盖用户已填的值。 */
@@ -79,6 +79,14 @@ object ConfigMigrator {
         "agent.context.compress.keep" to 20,
         "agent.context.compress.prompt" to "",
         "agent.context.truncate.drop" to 10,
+        "server-notify.enabled" to true,
+        "server-notify.shutdown.enabled" to true,
+        "server-notify.shutdown.message" to "服务器已正常关闭",
+        "server-notify.restart.enabled" to true,
+        "server-notify.restart.message" to "服务器已重启完成",
+        "server-notify.crash.enabled" to true,
+        "server-notify.crash.message" to "服务器意外关闭（崩溃或被强制结束），请管理员检查控制台",
+        "server-notify.restart-window" to 180,
         "commands.强制解绑" to true,
         "commands.添加免验证" to true,
         "commands.取消免验证" to true,

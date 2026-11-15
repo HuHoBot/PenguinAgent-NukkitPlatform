@@ -36,6 +36,7 @@ import cn.huohuas001.huhobotPenguin.nukkit.inventory.OfflineInventorySnapshots
 import cn.huohuas001.huhobotPenguin.nukkit.inventory.InventoryRenderer
 import cn.huohuas001.huhobotPenguin.nukkit.integration.PlaceholderApiSupport
 import cn.huohuas001.huhobotPenguin.nukkit.manager.ConfigMigrator
+import cn.huohuas001.huhobotPenguin.nukkit.manager.ServerNotifyManager
 import cn.huohuas001.huhobotPenguin.nukkit.manager.QrLoginManager
 import cn.huohuas001.huhobotPenguin.nukkit.scripting.NukkitScriptLoader
 import cn.nukkit.command.Command
@@ -65,6 +66,7 @@ class HuHoBotNukkit : PluginBase(), HuHoBot {
     private lateinit var config: YamlConfig
     private lateinit var pluginLogger: PluginLogger
     private lateinit var offlineInventorySnapshots: OfflineInventorySnapshots
+    private lateinit var serverNotifyManager: ServerNotifyManager
 
     private var scriptLoader: NukkitScriptLoader? = null
 
@@ -91,12 +93,16 @@ class HuHoBotNukkit : PluginBase(), HuHoBot {
         preloadAddonApiClasses()
         loadScriptAddons()
         initializeRuntime()
+        // 服务器状态通知：读状态文件判断上次是怎么结束的（崩溃 / 重启 / 正常开机）
+        serverNotifyManager = ServerNotifyManager(this, config).also { it.onServerStarted() }
         // QQ 客户端是异步启动的，延迟检查一次强制绑定是否可用（不可用会自动关闭开关）
         scheduleForceBindCheck()
         log_info("HuHoBotPenguin-NukkitPlatform 已加载（平台：Nukkit-MOT，服务端版本：${server.version}）")
     }
 
     override fun onDisable() {
+        // 必须赶在 shutdownRuntime() 关掉 QQ 连接之前发送关机通知。
+        if (::serverNotifyManager.isInitialized) serverNotifyManager.onServerStopping()
         try {
             scriptLoader?.unloadAll()
             scriptLoader = null
@@ -423,6 +429,19 @@ class HuHoBotNukkit : PluginBase(), HuHoBot {
     }
 
     override fun getCommandBlacklist(): List<String> = config.commandBlacklist()
+
+    /**
+     * 把命令名解析成服务器认的规范名，供黑名单匹配覆盖别名（如 `/pl` 与 `/plugins`）。
+     *
+     * Nukkit 的 [cn.nukkit.command.SimpleCommandMap] 本身就带别名表，
+     * `getCommand` 会按 knownCommands 把别名还原成主命令名；拿不到时返回 null，
+     * 黑名单退化为纯文本匹配。
+     */
+    override fun resolveCommandName(command: String): String? = runCatching {
+        val name = command.trim().trimStart('/').substringAfterLast(':').trim().lowercase()
+        if (name.isEmpty()) return@runCatching null
+        server.commandMap.getCommand(name)?.name?.lowercase()
+    }.getOrNull()
 
     override fun getWebUiPort(): Int = config.webUiPort()
 

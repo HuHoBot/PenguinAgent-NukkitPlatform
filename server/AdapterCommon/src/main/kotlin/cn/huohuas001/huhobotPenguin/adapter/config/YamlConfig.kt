@@ -262,6 +262,35 @@ class YamlConfig(
         fit = string("inventory.render.custom-background.fit", "cover")
     )
 
+    // ---------------------------------------------------------------- 服务器状态通知
+
+    /** 服务器状态通知总开关。 */
+    fun serverNotifyEnabled(): Boolean = boolean("server-notify.enabled", true)
+
+    fun serverNotifyShutdownEnabled(): Boolean =
+        serverNotifyEnabled() && boolean("server-notify.shutdown.enabled", true)
+
+    fun serverNotifyShutdownMessage(): String =
+        string("server-notify.shutdown.message", "服务器已正常关闭")
+
+    fun serverNotifyRestartEnabled(): Boolean =
+        serverNotifyEnabled() && boolean("server-notify.restart.enabled", true)
+
+    fun serverNotifyRestartMessage(): String =
+        string("server-notify.restart.message", "服务器已重启完成")
+
+    fun serverNotifyCrashEnabled(): Boolean =
+        serverNotifyEnabled() && boolean("server-notify.crash.enabled", true)
+
+    fun serverNotifyCrashMessage(): String = string(
+        "server-notify.crash.message",
+        "服务器意外关闭（崩溃或被强制结束），请管理员检查控制台"
+    )
+
+    /** 上次正常关闭后多少秒内重新启动算作一次重启。 */
+    fun serverNotifyRestartWindow(): Long =
+        integer("server-notify.restart-window", 180).toLong().coerceIn(0L, 3600L)
+
     // ---------------------------------------------------------------- 写入支持
 
     /** 读取原始节点值（dotted path）。 */
