@@ -25,6 +25,16 @@
 - 指令面板仍受 QQ 官方面板数量与写频率限制；群数量多且各群配置不同时，可能需要等待同步或受平台配额影响
 - `/motd` 现在直接使用 `motd.txssb.cn`；`motd.api` 主要用于 `/查在线` 在未走本地渲染时的回退图片地址
 
+### Nukkit 适配
+
+- feat(nukkit): WebUI 按群配置接入 —— `getWebUiGroupConfigValues` / `applyWebUiGroupConfigChanges` / `resetWebUiGroupConfig`，
+  `bot.groups` 变更、自动收录群号、配置保存后都会调用 `GroupCommandConfigStore.syncFolders` 同步 `groups/` 目录
+- feat(nukkit): `/查在线 [页码]` 改为本地渲染雾蓝玻璃主题图片。头像不走网络：Bedrock 皮肤随登录包上传，
+  直接把 RGBA 像素归一化成 64×64 后裁头（HD 128×128 也支持），因此 `skin.connect-timeout-ms` /
+  `read-timeout-ms` / `download-threads` 在 Nukkit 侧不生效
+- feat(nukkit): 底图（`online/` 三张切片，约 1.2 MB）由 Gradle 从 Spigot 模块同步，不在仓库里重复存放
+- fix(nukkit): 关闭本地渲染、渲染器初始化失败或底图缺失时自动回退到 MOTD 图片 / Markdown
+
 ---
 
 ## v1.20.0（2026-10-31）
@@ -58,6 +68,13 @@
 - 配置版本升到 12，启动时自动补上 `server-notify.*` 默认值，无需手动改 `config.yml`
 - 新增依赖 `adventure-text-minimessage` / `adventure-text-serializer-legacy` 4.17.0，已打进 Spigot 产物并 relocate
 
+### Nukkit 适配
+
+- feat(nukkit): 新增 `ServerNotifyManager` —— 状态文件区分正常关服 / 重启 / 意外关闭；关机通知在 `onDisable`
+  最开头、关闭 QQ 连接之前发送，重启与意外关闭在下次启动后等 QQ 鉴权完成再补发
+- feat(nukkit): 实现 `resolveCommandName`，借 `SimpleCommandMap` 的别名表把 `/pl` 还原成 `plugins`，黑名单不再能被别名绕过
+- note: Nukkit-MOT 的 jar 内不含 `net/kyori`，Adventure 不需要 relocate（各插件 classloader 相互隔离）
+
 ---
 
 ## v1.19.1（2026-10-31）
@@ -74,6 +91,11 @@
 - 配色取平原默认值：草色 `#91BD59`、树叶色 `#77AB2F`；白桦 `#80A755`、云杉 `#619961`、睡莲 `#71C35C` 用原版固定色
 - 只染白名单内的贴图，铁块、雪、石英等浅色方块不受影响；已带颜色的樱花、杜鹃、苍白橡木树叶不会被二次染色
 - 西瓜 / 南瓜茎同为灰度图，但原版按生长阶段取不同颜色，本次未改动
+
+### Nukkit 适配
+
+- fix(nukkit): 同一套染色白名单移植到 Nukkit 渲染器（草方块顶面、各类树叶、草丛、藤蔓、睡莲），
+  按 `通道 × 染色 / 255` 乘法混色；浅色方块（铁块、雪、石英）与已着色贴图不受影响
 
 ---
 
@@ -114,6 +136,15 @@
 - 配置版本升到 11。启动时自动补上 `agent.think`、`agent.think-visibility`、`agent.think-level`、`agent.think-param`、`agent.think-guide`、`agent.think-guide-prompt`、`agent.context.compress.target`、`agent.context.compress.keep`、`agent.context.compress.prompt`、`agent.context.truncate.drop`
 - 深度思考与思考引导默认都关闭，升级后行为与 1.18.1 一致
 - 深度思考相关设置只在配置文件 / WebUI 调整，QQ 群不再提供设置命令
+
+### Nukkit 适配
+
+- feat(nukkit): 补齐 `agent.think*` 与 `agent.context.*` 配置项（config-version 11），
+  WebUI 读写走 `applyWebUiConfigChanges`，保存后立即生效
+- feat(nukkit): `压缩` / `压缩token` / `压缩保留` / `删除信息` 默认不进面板；补齐 v1.18.0 遗漏的
+  `强制解绑` / `添加免验证` / `取消免验证` 命令开关
+- fix(nukkit): `YamlFileEditor` 支持按行删除（清理已下线的 `commands.深度思考` 等键），
+  并把带换行的字符串写成 `|-` 块状标量，避免 WebUI 保存的多行提示词被 YAML 折叠
 
 ---
 

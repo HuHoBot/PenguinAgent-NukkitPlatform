@@ -26,7 +26,7 @@
 | 白名单管理 | 映射到服务器原生命令，支持自定义模板 |
 | 敏感词审核 | 本地正则词库 + 可选 OpenAI 兼容接口 AI 二审 |
 | MOTD 服务器状态 | `/motd` 查询服务器状态（`motd.txssb.cn`），返回图片 + Markdown 卡片；未写端口时自动解析 SRV |
-| **在线列表本地渲染** | Spigot/Paper 的 `/查在线 [页码]` 默认本地渲染雾蓝玻璃主题图片（皮肤头像、管理员置顶、分页），失败自动回退 |
+| **在线列表本地渲染** | `/查在线 [页码]` 默认本地渲染雾蓝玻璃主题图片（皮肤头像、管理员置顶、分页），失败自动回退；Nukkit-MOT 侧头像直接取 Bedrock 皮肤，无需联网下载 |
 | 自定义命令 | 占位符替换，支持权限分级（普通/管理员） |
 | 多群支持 | 每群独立的管理员名单与配置 |
 | **AI Agent** | `@机器人 /agent 任务描述` —— AI 自动执行服务器管理任务 |
@@ -300,7 +300,7 @@ QQ 群中的 @消息会自动解析为 `§9@玩家名§r`（蓝色高亮），�
 |------|------|
 | `查信息` `[OpenId]` | 查询自己的或指定用户的 OpenId 和认证状态 |
 | `发信息` `<内容>` | 将消息转发到游戏内聊天 |
-| `查在线` `[页码]` | 查询在线玩家列表；Spigot/Paper 端默认发送本地渲染的雾蓝玻璃主题图片（含皮肤头像、管理员置顶、分页），其他平台或关闭后回退到 MOTD 图片/Markdown |
+| `查在线` `[页码]` | 查询在线玩家列表；Nukkit-MOT 与 Spigot/Paper 默认发送本地渲染的雾蓝玻璃主题图片（含皮肤头像、管理员置顶、分页），关闭或渲染失败时回退到 MOTD 图片/Markdown |
 | `在线服务器` | 查看已连接的服务器名称 |
 | `帮助` | 查看所有可用命令 |
 | `执行` `<命令>` | 执行自定义命令（普通权限） |
@@ -489,11 +489,14 @@ server-notify:
 
 - 状态记录在插件数据目录的 `server-notify-state.properties`，不要手动删除
 - 插件重载 / 手动停用不会被当成关服，也不会被当成一次重启
+- Nukkit-MOT 用 `Server#forceShutdown` 的时序判定：它在停用插件之前就把 `isRunning` 置为 false，因此
+  `!server.isRunning || server.isShutdownInProgress` 足以区分「真关服」与「插件被单独停用」
 - QQ 是异步鉴权的，通知会等鉴权成功后再发（最多 60 秒），未配置群或等待超时会记日志跳过
 
 ### 在线列表图片（`/查在线`）
 
-Spigot / Paper 端默认在本地渲染带玩家皮肤头像的雾蓝玻璃主题图片并发送，不再依赖 MOTD 外部图片接口。
+Nukkit-MOT 与 Spigot / Paper 端默认在本地渲染带玩家皮肤头像的雾蓝玻璃主题图片并发送，不再依赖 MOTD 外部图片接口。
+两端共用同一套渲染器与底图；差别只在头像来源：Spigot 按皮肤地址下载，Nukkit-MOT 直接用客户端登录时上传的 Bedrock 皮肤像素。
 
 ```yaml
 online-list:
@@ -503,11 +506,11 @@ online-list:
   admin-permission: ""         # 管理员判定权限节点；留空时只看 OP
   cooldown-seconds: 3          # 同一群两次请求的最小间隔，防刷屏
   skin:
-    enabled: true              # 关闭则显示占位头像，不走网络
-    connect-timeout-ms: 3000
-    read-timeout-ms: 5000
+    enabled: true              # 关闭则显示占位头像
+    connect-timeout-ms: 3000   # 仅 Spigot 端使用（按地址下载皮肤）
+    read-timeout-ms: 5000      # 仅 Spigot 端使用
     cache-size: 200            # 皮肤头像 LRU 缓存容量
-    download-threads: 4        # 并发下载线程数（1-12）
+    download-threads: 4        # 仅 Spigot 端使用（1-12）
   render:
     columns: 3                 # 渲染列数（1-3，推荐 3）
     font-family: ""            # 留空自动检测（优先微软雅黑等中文字体）
@@ -516,10 +519,11 @@ online-list:
 ```
 
 - 用法：`/查在线 [页码]`，缺省为第 1 页；页码超出范围会提示总页数
-- 玩家快照在主线程采集；皮肤下载与 PNG 渲染在后台线程完成，不阻塞服务器
+- 玩家快照在主线程采集；头像获取与 PNG 渲染在后台线程完成，不阻塞服务器
 - 图片按 1200px 宽渲染，正文底图按 640px 分段拼接，人数越多图片越高
 - 底图资源打包在 jar 内（`online/`），无需手动放置；渲染器初始化失败时自动回退到 MOTD 图片
-- Nukkit / Allay / 代理端未实现本地渲染，`/查在线` 仍使用原有 MOTD 图片逻辑
+- Nukkit-MOT 侧不使用 `connect-timeout-ms` / `read-timeout-ms` / `download-threads`：Bedrock 皮肤随登录包上传，头像直接从内存里的像素还原（HD 128×128 会等比归一到 64×64 再裁头）
+- Allay / 代理端未实现本地渲染，`/查在线` 仍使用原有 MOTD 图片逻辑
 
 ### 命令黑名单
 
@@ -579,7 +583,8 @@ PenguinAgent-NukkitPlatform/
 │       │   ├── commands/         # 命令分发、输出捕获、/huhobot /at /qqbind /send
 │       │   ├── events/           # 聊天与进退服事件
 │       │   ├── inventory/        # 背包快照 + PNG 渲染 + Bedrock→Java 贴图表
-│       │   └── manager/          # 配置迁移、扫码登录
+│       │   ├── onlinelist/       # 在线列表本地渲染（底图拼接、皮肤头像、分页）
+│       │   └── manager/          # 配置迁移、扫码登录、服务器状态通知
 │       ├── java/.../inventory/PlayerModelRenderer.java   # 玩家模型软件光栅化
 │       └── resources/{plugin.yml,config.yml}
 └── server/AdapterCommon/         # 适配器公共层（YAML 读写）

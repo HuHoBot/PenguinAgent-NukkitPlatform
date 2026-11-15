@@ -291,6 +291,44 @@ class YamlConfig(
     fun serverNotifyRestartWindow(): Long =
         integer("server-notify.restart-window", 180).toLong().coerceIn(0L, 3600L)
 
+    // ---------------------------------------------------------------- 在线列表本地渲染
+
+    /** 查在线命令是否使用本地渲染的在线列表图片；关闭后回退到 MOTD 外部 API 图片。 */
+    fun onlineListEnabled(): Boolean = boolean("online-list.enabled", true)
+
+    /** 在线列表每页玩家数。 */
+    fun onlineListPageSize(): Int = integer("online-list.page-size", 27).coerceIn(1, 300)
+
+    /** 管理员是否排在在线列表最前面。 */
+    fun onlineListAdminFirst(): Boolean = boolean("online-list.admin-first", true)
+
+    /** 在线列表管理员判定权限节点；留空时只看 OP。 */
+    fun onlineListAdminPermission(): String = string("online-list.admin-permission")
+
+    /** 在线列表是否显示玩家皮肤头像；关闭则显示占位头像。 */
+    fun onlineListSkinEnabled(): Boolean = boolean("online-list.skin.enabled", true)
+
+    /** 皮肤头像 LRU 缓存容量。 */
+    fun onlineListSkinCacheSize(): Int = integer("online-list.skin.cache-size", 200).coerceAtLeast(8)
+
+    /** 同一 QQ 群两次在线列表请求的最小间隔秒数，防刷屏。 */
+    fun onlineListCooldownSeconds(): Long =
+        integer("online-list.cooldown-seconds", 3).toLong().coerceAtLeast(0L)
+
+    /** 在线列表渲染列数（1-3）。 */
+    fun onlineListRenderColumns(): Int = integer("online-list.render.columns", 3).coerceIn(1, 3)
+
+    /** 在线列表渲染字体；留空自动检测。 */
+    fun onlineListRenderFontFamily(): String = string("online-list.render.font-family")
+
+    /** 在线列表图片页脚文字。 */
+    fun onlineListRenderFooterText(): String =
+        string("online-list.render.footer-text", "POWERED BY HuHoBot")
+
+    /** 在线列表图片最大字节数，超出则拒绝发送。 */
+    fun onlineListImageMaxBytes(): Int =
+        integer("online-list.image-max-bytes", 20 * 1024 * 1024).coerceAtLeast(64 * 1024)
+
     // ---------------------------------------------------------------- 写入支持
 
     /** 读取原始节点值（dotted path）。 */

@@ -1,4 +1,4 @@
-config-version: 8
+config-version: 12
 
 # WebUI 端口，访问 http://127.0.0.1:<port> 管理配置。
 webui-port: 5678
@@ -70,6 +70,33 @@ server-notify:
   # 上次正常关闭后多少秒内重新启动算作重启，建议 120-300
   # 超过这个时间再启动只会当作普通开机，不发送通知
   restart-window: 180
+
+# 查在线命令的本地图片渲染（雾蓝玻璃主题，带玩家皮肤头像）。
+# 关闭 enabled 后，查在线会回退到 MOTD 外部 API 图片。
+# Bedrock 客户端的皮肤随登录包上传，本地渲染直接用它，不需要下载皮肤，也不会因外网不通而掉头像。
+online-list:
+  enabled: true
+  # 每页玩家数，三列布局推荐 27（3列×9行）
+  page-size: 27
+  # 管理员置顶；组内按玩家名排序
+  admin-first: true
+  # 管理员判定权限节点；留空时只看 OP
+  admin-permission: ""
+  # 同一 QQ 群两次渲染请求的最小间隔秒数，防刷屏
+  cooldown-seconds: 3
+  skin:
+    # 是否显示玩家皮肤头像；关闭则显示占位头像
+    enabled: true
+    # 皮肤头像 LRU 缓存容量
+    cache-size: 200
+  render:
+    # 渲染列数（1-3，推荐 3）
+    columns: 3
+    # 渲染字体；留空自动检测
+    font-family: ""
+    footer-text: "POWERED BY HuHoBot"
+  # 在线列表图片最大字节数，超出则拒绝发送
+  image-max-bytes: 20971520
 
 motd:
   server-ip: "127.0.0.1"

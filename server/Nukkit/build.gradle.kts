@@ -64,12 +64,24 @@ val prepareInventoryAssets by tasks.registering(Sync::class) {
     into(inventoryAssetsDir)
 }
 
+// 在线列表的雾蓝玻璃底图（header / body tile / footer，约 1.2 MB）同样直接复用 Spigot 模块已入库的那一份。
+val onlineListAssetsDir = layout.buildDirectory.dir("generated/online-list-assets")
+
+val prepareOnlineListAssets by tasks.registering(Sync::class) {
+    group = "build"
+    description = "Copies the shared online-list background slices required by the renderer."
+    from(rootProject.file("server/Spigot/src/main/resources/online")) { into("online") }
+    into(onlineListAssetsDir)
+}
+
 sourceSets.named("main") {
     resources.srcDir(inventoryAssetsDir)
+    resources.srcDir(onlineListAssetsDir)
 }
 
 tasks.processResources {
     dependsOn(prepareInventoryAssets)
+    dependsOn(prepareOnlineListAssets)
 
     val pluginVersion = rootProject.version.toString()
     inputs.property("pluginVersion", pluginVersion)

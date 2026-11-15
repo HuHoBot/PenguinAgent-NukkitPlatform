@@ -8,6 +8,7 @@ import cn.huohuas001.bot.agent.AgentCommandMode
 import cn.huohuas001.bot.events.commands.BaseCommand
 import cn.huohuas001.bot.events.commands.CustomCommandRegistry
 import cn.huohuas001.bot.events.commands.RegisteredCommand
+import cn.huohuas001.bot.onlinelist.OnlineListBridge
 import cn.huohuas001.bot.provider.AdminMode
 import cn.huohuas001.bot.provider.ChatFormat
 import cn.huohuas001.bot.provider.CustomCommandDetail
@@ -15,6 +16,7 @@ import cn.huohuas001.bot.provider.HExecution
 import cn.huohuas001.bot.provider.Motd
 import cn.huohuas001.bot.provider.PlayerEventFormat
 import cn.huohuas001.bot.provider.WhiteList
+import cn.huohuas001.bot.state.GroupCommandConfigStore
 import cn.huohuas001.bot.tools.Cancelable
 import cn.huohuas001.bot.web.QrAuthState
 import cn.huohuas001.bot.web.WebUiServer
@@ -38,6 +40,7 @@ import cn.huohuas001.huhobotPenguin.nukkit.integration.PlaceholderApiSupport
 import cn.huohuas001.huhobotPenguin.nukkit.manager.ConfigMigrator
 import cn.huohuas001.huhobotPenguin.nukkit.manager.ServerNotifyManager
 import cn.huohuas001.huhobotPenguin.nukkit.manager.QrLoginManager
+import cn.huohuas001.huhobotPenguin.nukkit.onlinelist.OnlineListManager
 import cn.huohuas001.huhobotPenguin.nukkit.scripting.NukkitScriptLoader
 import cn.nukkit.command.Command
 import cn.nukkit.command.CommandSender
@@ -67,6 +70,7 @@ class HuHoBotNukkit : PluginBase(), HuHoBot {
     private lateinit var pluginLogger: PluginLogger
     private lateinit var offlineInventorySnapshots: OfflineInventorySnapshots
     private lateinit var serverNotifyManager: ServerNotifyManager
+    private var onlineListManager: OnlineListManager? = null
 
     private var scriptLoader: NukkitScriptLoader? = null
 
@@ -85,6 +89,9 @@ class HuHoBotNukkit : PluginBase(), HuHoBot {
         ConfigMigrator.upgrade(config) { log_info(it) }
 
         InventoryRenderer.init(dataFolder, config.inventoryRender(), this::log_warning)
+        initializeOnlineListRenderer()
+        GroupCommandConfigStore.configureDataDir(dataFolder)
+        GroupCommandConfigStore.syncFolders(config.groupOpenIds())
         offlineInventorySnapshots = OfflineInventorySnapshots(this).also { it.start() }
 
         server.pluginManager.registerEvents(PlayerEvents(this), this)
@@ -106,6 +113,9 @@ class HuHoBotNukkit : PluginBase(), HuHoBot {
         try {
             scriptLoader?.unloadAll()
             scriptLoader = null
+            OnlineListBridge.handler = null
+            onlineListManager?.stop()
+            onlineListManager = null
             if (::offlineInventorySnapshots.isInitialized) offlineInventorySnapshots.close()
         } finally {
             shutdownRuntime()
@@ -128,6 +138,9 @@ class HuHoBotNukkit : PluginBase(), HuHoBot {
         config.reload()
         ConfigMigrator.upgrade(config) { log_info(it) }
         InventoryRenderer.init(dataFolder, config.inventoryRender(), this::log_warning)
+        initializeOnlineListRenderer()
+        GroupCommandConfigStore.configureDataDir(dataFolder)
+        GroupCommandConfigStore.syncFolders(config.groupOpenIds())
         PlaceholderApiSupport.setup(this)
         reloadRuntimeConfig()
         // 配置里开着强制绑定但 QQ 不可用时，自动改回关闭，避免把玩家挡在门外
@@ -428,6 +441,28 @@ class HuHoBotNukkit : PluginBase(), HuHoBot {
         }
     }
 
+    /**
+     * 初始化（或重新加载）在线列表本地渲染器，并注册到 [OnlineListBridge]。
+     * 失败时不中断插件，查在线命令自动回退到 MOTD 外部 API 图片。
+     */
+    private fun initializeOnlineListRenderer() {
+        onlineListManager?.stop()
+        if (OnlineListBridge.handler === onlineListManager) OnlineListBridge.handler = null
+        onlineListManager = null
+        if (!config.onlineListEnabled()) {
+            log_info("在线列表本地渲染已关闭（online-list.enabled=false），查在线将使用 MOTD 外部 API 图片")
+            return
+        }
+        try {
+            val manager = OnlineListManager(this, config).also { it.start() }
+            onlineListManager = manager
+            OnlineListBridge.handler = manager
+        } catch (error: Throwable) {
+            log_warning("在线列表渲染器初始化失败，查在线将回退到 MOTD 外部 API 图片: ${error.message}")
+            OnlineListBridge.handler = null
+        }
+    }
+
     override fun getCommandBlacklist(): List<String> = config.commandBlacklist()
 
     /**
@@ -469,16 +504,75 @@ class HuHoBotNukkit : PluginBase(), HuHoBot {
 
     override fun applyWebUiConfigChanges(changes: JSONObject): Boolean {
         return try {
+            val groupsChanged = changes.containsKey("bot.groups")
             changes.forEach { (path, value) ->
                 config.set(path, convertJsonValue(value))
             }
             config.save()
+            if (groupsChanged) {
+                val groups = changes.getJSONArray("bot.groups")?.mapNotNull { it?.toString()?.trim() }
+                    ?.filter { it.isNotEmpty() } ?: config.groupOpenIds()
+                GroupCommandConfigStore.syncFolders(groups)
+            }
             reloadPluginConfig()
             true
         } catch (error: Exception) {
             log_error("WebUI 保存配置失败: ${error.message}")
             false
         }
+    }
+
+    override fun getWebUiGroupConfigValues(groupId: String): Map<String, Any?> {
+        val global = getWebUiConfigValues().toMutableMap()
+        // 在全局值基础上叠加该群的有效命令/面板配置
+        val gid = groupId.trim()
+        global["__groupId"] = gid
+        global["__groupHasOverrides"] = GroupCommandConfigStore.hasOverrides(gid)
+        global["command-panel.show-admin-commands"] = showAdminCommandsInMenu(gid)
+        val cmdList = getCommandList(gid)
+        val menuList = getCommandMenuList(gid)
+        val priorities = getCommandMenuPriorities(gid)
+        val names = (cmdList.keys + menuList.keys + priorities.keys +
+            BaseCommand.allCommands().map { it.command }).distinct()
+        names.forEach { name ->
+            global["commands.$name.enable"] = cmdList[name] ?: true
+            global["commands.$name.pushMenu"] = menuList[name] ?: (name !in COMMANDS_HIDDEN_FROM_MENU_WEBUI)
+            global["commands.$name.priority"] = priorities[name] ?: if (name == "agent") 0 else 100
+            // 兼容 boolean-map / 旧读取形态：WebUI 的 command-map 组件读的是 commands.<name>
+            global["commands.$name"] = global["commands.$name.enable"]
+        }
+        return global
+    }
+
+    override fun applyWebUiGroupConfigChanges(groupId: String, changes: JSONObject): Boolean {
+        val gid = groupId.trim()
+        if (gid.isEmpty()) return false
+        return try {
+            val filtered = linkedMapOf<String, Any?>()
+            changes.forEach { (path, value) ->
+                if (GroupCommandConfigStore.isOverridable(path)) {
+                    filtered[path] = convertJsonValue(value)
+                }
+            }
+            if (!GroupCommandConfigStore.applyChanges(gid, filtered)) return false
+            GroupCommandConfigStore.clearCache(gid)
+            QClient.syncGroupPanels()
+            true
+        } catch (error: Exception) {
+            log_error("保存群配置失败 ($groupId): ${error.message}")
+            false
+        }
+    }
+
+    override fun resetWebUiGroupConfig(groupId: String): Boolean {
+        val gid = groupId.trim()
+        if (gid.isEmpty()) return false
+        val ok = GroupCommandConfigStore.clear(gid)
+        if (ok) {
+            GroupCommandConfigStore.syncFolders(config.groupOpenIds())
+            QClient.syncGroupPanels()
+        }
+        return ok
     }
 
     /** 将 fastjson 值转换为 YAML 可接受的 Java 类型。 */
@@ -495,8 +589,10 @@ class HuHoBotNukkit : PluginBase(), HuHoBot {
         val current = config.groupOpenIds()
         if (current.contains(openId)) return false
         return try {
-            config.set("bot.groups", current + openId)
+            val groups = current + openId
+            config.set("bot.groups", groups)
             config.save()
+            GroupCommandConfigStore.syncFolders(groups)
             log_info("已自动把群 $openId 添加到 bot.groups")
             reloadRuntimeConfig()
             true
@@ -889,6 +985,16 @@ class HuHoBotNukkit : PluginBase(), HuHoBot {
     override fun log_error(msg: String) = pluginLogger.error(msg)
 
     private companion object {
+        /** 与 YamlConfig.HIDDEN_FROM_MENU 保持一致的面板隐藏默认值（仅用于 WebUI 展示）。 */
+        val COMMANDS_HIDDEN_FROM_MENU_WEBUI = setOf(
+            "blockMotd",
+            "unblockMotd",
+            "压缩",
+            "压缩token",
+            "压缩保留",
+            "删除信息"
+        )
+
         /** Bedrock 默认端口，用作 motd.server-port 的兜底值。 */
         const val DEFAULT_BEDROCK_PORT = 19132
 
