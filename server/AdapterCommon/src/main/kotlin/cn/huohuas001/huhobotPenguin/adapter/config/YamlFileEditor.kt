@@ -60,6 +60,25 @@ class YamlFileEditor(private val file: File) {
         lines.addAll(insertAt.coerceIn(0, lines.size), rendered)
     }
 
+    /**
+     * 删除 [path]（dotted path）对应的键及其子块。
+     *
+     * 用于清理已下线的配置项（例如早期版本留在 `commands` 段里的旧命令开关）。
+     * 键不存在时什么也不做，避免把不相关的行改坏。
+     */
+    fun remove(path: String) {
+        val segments = path.split('.').map(String::trim).filter(String::isNotEmpty)
+        if (segments.isEmpty()) return
+
+        val found = locate(segments)
+        if (found < 0) return
+        dirty = true
+
+        val indent = indentOf(lines[found])
+        val end = blockEnd(found, indent)
+        lines.subList(found, end + 1).clear()
+    }
+
     /** 写回文件；无改动时不做任何事。 */
     fun commit() {
         if (!dirty) return
@@ -137,12 +156,30 @@ class YamlFileEditor(private val file: File) {
 
     private fun renderEntry(key: String, value: Any?, indent: Int): List<String> {
         val pad = " ".repeat(indent)
-        return when (value) {
-            is Map<*, *> -> renderMapEntry(key, value, indent)
-            is Iterable<*> -> renderListEntry(key, value, indent)
-            is Array<*> -> renderListEntry(key, value.toList(), indent)
+        return when {
+            value is Map<*, *> -> renderMapEntry(key, value, indent)
+            value is Iterable<*> -> renderListEntry(key, value, indent)
+            value is Array<*> -> renderListEntry(key, value.toList(), indent)
+            // 多行文本（提示词、自定义消息）写成块状标量，否则单引号标量里的换行会被 YAML 折叠掉。
+            value is String && value.contains('\n') -> renderBlockScalar(key, value, indent)
             else -> listOf("$pad$key: ${scalar(value)}")
         }
+    }
+
+    /**
+     * 多行字符串渲染成 `key: |-` 块状标量。
+     *
+     * 提示词这类文本必须保留原始换行，`|-`（strip）不追加行尾换行，
+     * 与用户填进 WebUI 文本框里的内容一致。
+     */
+    private fun renderBlockScalar(key: String, value: String, indent: Int): List<String> {
+        val pad = " ".repeat(indent)
+        val body = value.trimEnd('\n')
+        val out = mutableListOf("$pad$key: |-")
+        body.split('\n').forEach { line ->
+            out.add(if (line.isEmpty()) "" else " ".repeat(indent + 2) + line)
+        }
+        return out
     }
 
     private fun renderMapEntry(key: String, value: Map<*, *>, indent: Int): List<String> {

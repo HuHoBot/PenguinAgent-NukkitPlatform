@@ -12,7 +12,7 @@ import cn.huohuas001.huhobotPenguin.adapter.config.YamlConfig
  */
 object ConfigMigrator {
 
-    private const val CURRENT_CONFIG_VERSION = 10
+    private const val CURRENT_CONFIG_VERSION = 11
     private const val CONFIG_VERSION_PATH = "config-version"
 
     /** 应当存在的键与默认值；只补「文件里完全没有」的键，不覆盖用户已填的值。 */
@@ -69,7 +69,37 @@ object ConfigMigrator {
         "agent.model" to "gpt-4o-mini",
         "agent.command-mode" to "manual",
         "agent.hide-fetch-results" to true,
+        "agent.think" to false,
+        "agent.think-visibility" to "log",
+        "agent.think-level" to "",
+        "agent.think-param" to "reasoning_effort",
+        "agent.think-guide" to false,
+        "agent.think-guide-prompt" to "",
+        "agent.context.compress.target" to 4000,
+        "agent.context.compress.keep" to 20,
+        "agent.context.compress.prompt" to "",
+        "agent.context.truncate.drop" to 10,
+        "commands.强制解绑" to true,
+        "commands.添加免验证" to true,
+        "commands.取消免验证" to true,
+        "commands.压缩" to true,
+        "commands.压缩token" to true,
+        "commands.压缩保留" to true,
+        "commands.删除信息" to true,
         "custom-commands" to emptyList<Any>()
+    )
+
+    /**
+     * 已下线的配置项。
+     *
+     * 深度思考/展示方式/推理设置/思考引导改为只能在配置文件（WebUI）里设置，
+     * 对应的 QQ 命令已移除，旧配置里遗留的 commands.xxx 段要清掉，否则会残留在面板里。
+     */
+    private val REMOVED_KEYS = listOf(
+        "commands.深度思考",
+        "commands.思考展示",
+        "commands.思考程度",
+        "commands.思考引导"
     )
 
     /** 版本化升级：旧版本号 < toVersion 时覆盖对应字段的值。 */
@@ -86,6 +116,13 @@ object ConfigMigrator {
         DEFAULT_VALUES.forEach { (path, value) ->
             if (config.raw(path) == null) {
                 config.set(path, value)
+                changed = true
+            }
+        }
+
+        REMOVED_KEYS.forEach { path ->
+            if (config.raw(path) != null) {
+                config.remove(path)
                 changed = true
             }
         }

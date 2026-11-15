@@ -293,6 +293,45 @@ class HuHoBotNukkit : PluginBase(), HuHoBot {
     override fun getAgentApiKey(): String? = config.agentApiKey()
     override fun getAgentModel(): String? = config.agentModel()
     override fun getAgentCommandMode(): AgentCommandMode = config.agentCommandMode()
+
+    override fun getAgentThink(): Boolean = config.agentThink()
+    override fun getAgentThinkVisibility(): String = config.agentThinkVisibility()
+    override fun getAgentThinkLevel(): String = config.agentThinkLevel()
+    override fun getAgentThinkParam(): String = config.agentThinkParam()
+    override fun getAgentThinkGuide(): Boolean = config.agentThinkGuide()
+    override fun getAgentThinkGuidePrompt(): String = config.agentThinkGuidePrompt()
+    override fun getAgentCompressTarget(): Int = config.agentCompressTarget()
+    override fun getAgentCompressKeep(): Int = config.agentCompressKeep()
+    override fun getAgentCompressPrompt(): String = config.agentCompressPrompt()
+    override fun getAgentTruncateDrop(): Int = config.agentTruncateDrop()
+
+    override fun setAgentThink(enabled: Boolean): Boolean = saveAgentConfig("agent.think", enabled)
+
+    override fun setAgentThinkVisibility(visibility: String): Boolean =
+        saveAgentConfig("agent.think-visibility", visibility)
+
+    override fun setAgentThinkLevel(level: String): Boolean = saveAgentConfig("agent.think-level", level)
+
+    override fun setAgentThinkGuide(enabled: Boolean): Boolean = saveAgentConfig("agent.think-guide", enabled)
+
+    override fun setAgentCompressTarget(target: Int): Boolean =
+        saveAgentConfig("agent.context.compress.target", target)
+
+    override fun setAgentCompressKeep(keep: Int): Boolean =
+        saveAgentConfig("agent.context.compress.keep", keep)
+
+    /**
+     * 写入单个 Agent 配置项。
+     *
+     * 深度思考、上下文压缩等设置通过 WebUI / QQ 命令修改后必须立刻生效，
+     * 因此统一走 [applyWebUiConfigChanges] 这条通道：写 config.yml、刷新配置缓存，不用重启。
+     */
+    private fun saveAgentConfig(path: String, value: Any): Boolean {
+        val changes = JSONObject()
+        changes[path] = value
+        return applyWebUiConfigChanges(changes)
+    }
+
     override fun getBindingRequireGameVerification(): Boolean = config.bindingRequireGameVerification()
 
     override fun isForceBindEnabled(): Boolean = config.forceBindEnabled()

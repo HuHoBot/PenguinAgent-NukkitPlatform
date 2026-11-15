@@ -32,6 +32,9 @@ class YamlConfig(
     /** 待写回文件的改动：dotted path -> 新值。 */
     private val pendingWrites = LinkedHashMap<String, Any?>()
 
+    /** 待从文件里删除的键：dotted path（用于清理已下线的配置项）。 */
+    private val pendingRemovals = LinkedHashSet<String>()
+
     fun initialize(defaultConfig: () -> InputStream?) {
         if (!file.exists()) {
             file.parentFile?.mkdirs()
@@ -222,6 +225,36 @@ class YamlConfig(
 
     fun agentFetchResultHidden(): Boolean = boolean("agent.hide-fetch-results", true)
 
+    /** 深度思考：原生推理模型用，开启后才向接口附加思考参数（开启思考引导后不生效）。 */
+    fun agentThink(): Boolean = boolean("agent.think", false)
+
+    /** 思考过程展示方式：log=只写日志 / group=只发 QQ 群 / both=都发。 */
+    fun agentThinkVisibility(): String = string("agent.think-visibility").ifBlank { "log" }
+
+    /** 推理设置档位；留空表示不向接口附加思考参数。 */
+    fun agentThinkLevel(): String = string("agent.think-level")
+
+    /** 思考参数名，按模型厂商选择。 */
+    fun agentThinkParam(): String = string("agent.think-param").ifBlank { "reasoning_effort" }
+
+    /** 思考引导：非推理模型用提示词模拟深度思考；与深度思考互斥。 */
+    fun agentThinkGuide(): Boolean = boolean("agent.think-guide", false)
+
+    /** 思考引导提示词；留空则使用代码内置默认值。 */
+    fun agentThinkGuidePrompt(): String = string("agent.think-guide-prompt")
+
+    /** 上下文压缩后的目标 token 数。 */
+    fun agentCompressTarget(): Int = integer("agent.context.compress.target", 4000)
+
+    /** 上下文压缩时原样保留的最近消息条数。 */
+    fun agentCompressKeep(): Int = integer("agent.context.compress.keep", 20)
+
+    /** 上下文压缩提示词，支持 {target} 占位符；留空则使用代码内置默认值。 */
+    fun agentCompressPrompt(): String = string("agent.context.compress.prompt")
+
+    /** /删除信息 未指定条数时默认删除的条数。 */
+    fun agentTruncateDrop(): Int = integer("agent.context.truncate.drop", 10)
+
     fun inventoryRender(): InventoryRenderConfig = InventoryRenderConfig(
         customBackgroundEnabled = boolean("inventory.render.custom-background.enabled", false),
         inventoryFile = string("inventory.render.custom-background.inventory-file", "inventory.png"),
@@ -258,15 +291,38 @@ class YamlConfig(
         applyToMemory(trimmed, value)
     }
 
+    /** 记录一次待落盘的删除，同时立即从内存值里去掉。 */
+    fun remove(path: String) {
+        val trimmed = path.trim()
+        if (trimmed.isEmpty()) return
+        pendingRemovals.add(trimmed)
+        pendingWrites.remove(trimmed)
+        removeFromMemory(trimmed)
+    }
+
     /** 把待落盘改动定点写回文件（保留注释），随后重新加载。 */
     @Synchronized
     fun save() {
-        if (pendingWrites.isEmpty()) return
+        if (pendingWrites.isEmpty() && pendingRemovals.isEmpty()) return
         val editor = YamlFileEditor(file)
+        pendingRemovals.forEach { path -> editor.remove(path) }
         pendingWrites.forEach { (path, value) -> editor.set(path, value) }
         editor.commit()
         pendingWrites.clear()
+        pendingRemovals.clear()
         reload()
+    }
+
+    private fun removeFromMemory(path: String) {
+        val segments = path.split('.')
+        val root = deepMutable(values)
+        var cursor: MutableMap<String, Any?> = root
+        for (index in 0 until segments.size - 1) {
+            @Suppress("UNCHECKED_CAST")
+            cursor = (cursor[segments[index]] as? MutableMap<String, Any?>) ?: return
+        }
+        cursor.remove(segments.last())
+        values = root
     }
 
     private fun applyToMemory(path: String, value: Any?) {
@@ -338,8 +394,15 @@ class YamlConfig(
     }
 
     private companion object {
-        /** 这些命令默认不推送到 QQ 指令面板。 */
-        val HIDDEN_FROM_MENU = setOf("blockMotd", "unblockMotd")
+        /** 这些命令默认不推送到 QQ 指令面板（面板最多 20 条，低频运维命令让出名额）。 */
+        val HIDDEN_FROM_MENU = setOf(
+            "blockMotd",
+            "unblockMotd",
+            "压缩",
+            "压缩token",
+            "压缩保留",
+            "删除信息"
+        )
 
         /** 宽松布尔解析：兼容 true/false、1/0、on/off、yes/no。 */
         fun toBoolean(value: Any?, default: Boolean = true): Boolean = when (value) {
