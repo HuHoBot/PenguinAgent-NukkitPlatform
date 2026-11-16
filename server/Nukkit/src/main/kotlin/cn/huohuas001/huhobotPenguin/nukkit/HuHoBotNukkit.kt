@@ -30,6 +30,7 @@ import cn.huohuas001.huhobotPenguin.nukkit.commands.HuHoBotCommand
 import cn.huohuas001.huhobotPenguin.nukkit.commands.NukkitCommandExecutor
 import cn.huohuas001.huhobotPenguin.nukkit.commands.QqBindCommand
 import cn.huohuas001.huhobotPenguin.nukkit.commands.SendCommand
+import cn.huohuas001.huhobotPenguin.nukkit.events.AccountLockGuard
 import cn.huohuas001.huhobotPenguin.nukkit.events.ForceBindGuard
 import cn.huohuas001.huhobotPenguin.nukkit.events.OnBotCommand
 import cn.huohuas001.huhobotPenguin.nukkit.events.OnBotRecvMsg
@@ -46,6 +47,7 @@ import cn.nukkit.command.Command
 import cn.nukkit.command.CommandSender
 import cn.nukkit.command.PluginIdentifiableCommand
 import cn.nukkit.command.data.CommandData
+import cn.nukkit.utils.TextFormat
 import cn.nukkit.event.Event
 import cn.nukkit.level.Sound
 import cn.nukkit.plugin.PluginBase
@@ -96,6 +98,7 @@ class HuHoBotNukkit : PluginBase(), HuHoBot {
 
         server.pluginManager.registerEvents(PlayerEvents(this), this)
         server.pluginManager.registerEvents(ForceBindGuard(this), this)
+        server.pluginManager.registerEvents(AccountLockGuard(this), this)
         PlaceholderApiSupport.setup(this)
         preloadAddonApiClasses()
         loadScriptAddons()
@@ -352,6 +355,32 @@ class HuHoBotNukkit : PluginBase(), HuHoBot {
     }
 
     override fun getBindingRequireGameVerification(): Boolean = config.bindingRequireGameVerification()
+
+    override fun getMaxBindings(): Int = config.maxBindings()
+
+    /**
+     * 账号被锁定后立即踢出在线玩家。
+     *
+     * 锁定通常发生在账号被盗或借出时，只拦截下次进服不够，必须把当前会话也断开。
+     * 免验证名单同样不豁免：锁定的优先级高于免验证。
+     */
+    override fun kickLockedPlayer(playerName: String): Boolean {
+        val target = server.getPlayerExact(playerName) ?: return false
+        val separator = "${TextFormat.DARK_GRAY}${TextFormat.STRIKETHROUGH}${"─".repeat(30)}"
+        val reason = buildString {
+            appendLine(separator)
+            appendLine("${TextFormat.RED}${TextFormat.BOLD}账号已被锁定")
+            appendLine(separator)
+            appendLine("${TextFormat.GRAY}该游戏账号已被绑定者锁定，本次游戏会话已结束。")
+            appendLine("${TextFormat.GRAY}如需恢复，请在 QQ 群执行 /解除锁定 后再重新连接。")
+        }
+        // 放到下一 tick，避免在消息回调里直接改变玩家状态
+        submitLater(1L) {
+            if (target.isOnline) target.kick(reason)
+        }
+        log_info("账号锁定: $playerName 已被锁定，踢出在线会话")
+        return true
+    }
 
     override fun isForceBindEnabled(): Boolean = config.forceBindEnabled()
 
@@ -992,7 +1021,9 @@ class HuHoBotNukkit : PluginBase(), HuHoBot {
             "压缩",
             "压缩token",
             "压缩保留",
-            "删除信息"
+            "删除信息",
+            "锁定",
+            "解除锁定"
         )
 
         /** Bedrock 默认端口，用作 motd.server-port 的兜底值。 */

@@ -197,6 +197,9 @@ class YamlConfig(
     /** 绑定时是否需要游戏内 /qqbind 验证；强制绑定启用时本条配置无效。默认 true 与上游 v1.17.0 对齐。 */
     fun bindingRequireGameVerification(): Boolean = boolean("binding.require-game-verification", true)
 
+    /** 一个 QQ 号最多可绑定的角色数；默认 1，与旧版行为一致。 */
+    fun maxBindings(): Int = integer("binding.max-bindings", 1).coerceIn(1, 100)
+
     /** 强制绑定：未绑定玩家进服被踢出并拿验证码，必须在 QQ 群 /绑定 后才能进入。 */
     fun forceBindEnabled(): Boolean = boolean("binding.force-bind", false)
 
@@ -468,7 +471,9 @@ class YamlConfig(
             "压缩",
             "压缩token",
             "压缩保留",
-            "删除信息"
+            "删除信息",
+            "锁定",
+            "解除锁定"
         )
 
         /** 宽松布尔解析：兼容 true/false、1/0、on/off、yes/no。 */

@@ -322,6 +322,8 @@ QQ 群中的 @消息会自动解析为 `§9@玩家名§r`（蓝色高亮），�
 - 一个游戏账号同一时间只能被一个 QQ 号绑定，多人绑定同一角色会被拒绝。
 - 账号锁定独立于 `binding.force-bind`：强制绑定拦的是未绑定玩家，锁定拦的是绑定者主动锁起来的账号；锁定状态优先于免验证名单。
 - 锁定状态保存在 `plugins/HuHoBotPenguin/command-state.ini` 的 `[user-binding-locks]` 段，重启后仍然有效；解绑会自动清除对应锁定。
+- 进服拦截由各平台的登录守卫执行：Spigot/Paper 用 `PlayerJoinEvent`，Nukkit-MOT 用同名事件 + 下一 tick 踢出（`AccountLockGuard`）；
+  `/锁定` 触发时还会立刻踢掉在线会话。
 - 管理员可用 `/强制解绑 <MC玩家名 | @某人 | openid | QQ昵称>` 撤销冒名绑定：指定角色名时只解绑该角色，指定 openid / QQ 昵称时解绑该 QQ 的全部角色。
 
 ### 管理员命令（需要管理员权限）

@@ -20,6 +20,18 @@
 - 无需手动清理旧面板：首次同步会复用并接管已有受管面板，多余的历史面板会在后续同步中自动清理
 - 如果控制台提示「面板数量已达 20 个上限」，请到 QQ 开放平台手动删除多余的 HuHoBot 面板后重启
 
+### Nukkit 适配
+
+- feat(nukkit): 新增 `AccountLockGuard` —— 监听 `PlayerJoinEvent`，被锁定的角色下一 tick 踢出，
+  踢出画面带分隔线与恢复指引；免验证名单不豁免
+- feat(nukkit): 实现 `kickLockedPlayer`，`/锁定` 后立即断开该角色的在线会话（下一 tick 执行）
+- feat(nukkit): 实现 `getMaxBindings`（`binding.max-bindings`，1-100）；`/qqbind` 改用 `BindResult`，
+  分别提示「已被他人绑定 / 重复绑定 / 超出上限 / 名称非法」
+- fix(nukkit): 调度器单位问题在 Nukkit 侧本就不存在（`submitLater` / `submitTimer` 一直是 tick），
+  本次只补注释说明，行为不变
+- 配置版本升到 13：新增 `binding.max-bindings`、`commands.锁定` / `commands.解除锁定`，
+  面板隐藏默认值补上 `锁定` / `解除锁定`
+
 ---
 
 ## v1.21.1（2026-11-15，已并入 1.22.0）
@@ -41,7 +53,8 @@
 - 版本号 1.21.0 → 1.21.1
 - 配置版本升到 13，启动时自动补上 `binding.max-bindings: 1`，无需手动改 `config.yml`
 - 不调整 `binding.max-bindings` 时行为与旧版一致：一个 QQ 号仍然只能绑定一个角色
-- 账号锁定由 Spigot/Paper 端的登录守卫执行；其他平台未实现时命令仍可执行，但不会拦截进服
+- 账号锁定由各平台的登录守卫执行：Spigot/Paper 与 Nukkit-MOT 均已实现（Nukkit 见 `AccountLockGuard`）；
+  Allay / 代理端未实现时命令仍可执行，但不会拦截进服
 
 ---
 

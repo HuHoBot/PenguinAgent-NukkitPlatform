@@ -12,7 +12,7 @@ import cn.huohuas001.huhobotPenguin.adapter.config.YamlConfig
  */
 object ConfigMigrator {
 
-    private const val CURRENT_CONFIG_VERSION = 12
+    private const val CURRENT_CONFIG_VERSION = 13
     private const val CONFIG_VERSION_PATH = "config-version"
 
     /** 应当存在的键与默认值；只补「文件里完全没有」的键，不覆盖用户已填的值。 */
@@ -47,6 +47,7 @@ object ConfigMigrator {
         "admin.openids" to emptyList<String>(),
         "features.full-amount" to false,
         "features.enable-auth" to true,
+        "binding.max-bindings" to 1,
         "binding.require-game-verification" to true,
         "binding.force-bind" to false,
         "binding.force-bind-groups" to emptyList<String>(),
@@ -105,6 +106,8 @@ object ConfigMigrator {
         "commands.压缩token" to true,
         "commands.压缩保留" to true,
         "commands.删除信息" to true,
+        "commands.锁定" to true,
+        "commands.解除锁定" to true,
         "custom-commands" to emptyList<Any>()
     )
 
